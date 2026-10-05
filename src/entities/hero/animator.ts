@@ -238,7 +238,7 @@ export class HeroAnimator {
     r.plateLower.rotation.x =
       (0.5 + 0.5 * breathe) * 0.05 + this.beat * 0.05 + runF * 0.08 + roar * 0.62 + tremble + k(pose?.jaw);
 
-    const glowBoost = 1 + this.beat * 0.8 + roar * 1.6 + k(pose?.glow);
+    const glowBoost = 1 + this.beat * 0.6 + roar * 1.2 + k(pose?.glow) * 0.4;
     for (const mat of r.pulseMaterials) mat.emissiveIntensity = (mat.userData.baseGlow as number) * glowBoost;
     r.chestLight.intensity = 1.5 + this.beat * 3 + roar * 9 + k(pose?.glow) * 4;
   }
