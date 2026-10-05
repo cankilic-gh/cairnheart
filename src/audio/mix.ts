@@ -20,6 +20,15 @@ export const spatialize = (listener: Vec2, right: Vec2, source: Vec2, floor = 0.
   };
 };
 
+export type GameAudioMode = 'live' | 'muffled' | 'paused';
+
+/**
+ * What the gameplay bus should do for a game state: silent behind the pause menu and the game-over
+ * card (so loops like a lit fuse cannot keep sounding), muffled under the upgrade picker, live otherwise.
+ */
+export const gameAudioMode = (state: string, menuPaused: boolean): GameAudioMode =>
+  menuPaused || state === 'over' ? 'paused' : state === 'upgrade' ? 'muffled' : 'live';
+
 /** Fixed-size voice list per sound: when full, the oldest voice is the one to cut. */
 export class VoiceLimiter<T> {
   private readonly voices: T[] = [];

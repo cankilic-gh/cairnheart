@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { VoiceLimiter, spatialize } from '../../src/audio/mix';
+import { VoiceLimiter, gameAudioMode, spatialize } from '../../src/audio/mix';
 import { ResolutionGovernor, RollingStats } from '../../src/core/perf';
 import { mulberry32 } from '../../src/core/rng';
 import { projectileHits } from '../../src/game/projectiles';
@@ -108,5 +108,19 @@ describe('audio mix', () => {
     expect(v.add('c')).toBe('a');
     v.remove('b');
     expect(v.size).toBe(1);
+  });
+});
+
+describe('game audio mode', () => {
+  it('silences gameplay audio behind the pause menu and the game-over card', () => {
+    expect(gameAudioMode('playing', true)).toBe('paused');
+    expect(gameAudioMode('over', false)).toBe('paused');
+  });
+
+  it('muffles under the upgrade picker and is live otherwise', () => {
+    expect(gameAudioMode('upgrade', false)).toBe('muffled');
+    expect(gameAudioMode('playing', false)).toBe('live');
+    expect(gameAudioMode('dying', false)).toBe('live');
+    expect(gameAudioMode('intro', false)).toBe('live');
   });
 });

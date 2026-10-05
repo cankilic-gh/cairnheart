@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { ABILITIES, ATTACKS, type Ability, type AttackSpec } from './combat/attacks';
 import { HeroCombat, type ActiveAction, type HitEvent } from './combat/heroCombat';
 import { Sfx } from './audio/engine';
+import { gameAudioMode } from './audio/mix';
 import { CameraRig } from './core/cameraRig';
 import { Input, type InputAction } from './core/input';
 import { smoothstep } from './core/math';
@@ -199,6 +200,7 @@ export class Game {
     }
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) this.setMenuPaused(true);
+      this.sfx.setHidden(document.hidden);
     });
     window.addEventListener('blur', () => this.setMenuPaused(true));
 
@@ -286,7 +288,7 @@ export class Game {
     }
     if (this.state === 'dying') this.updateDeath();
     this.sfx.setListener(this.motion.pos, cameraBasis(this.cameraRig.azimuth).right);
-    this.sfx.setMenu(halted || this.state === 'over');
+    this.syncAudio();
     this.sfx.update(dt);
     this.heroFlash.uFlash.value = Math.max(0, this.heroFlash.uFlash.value - sim * 2.5);
 
@@ -391,6 +393,12 @@ export class Game {
     if (!allowed || this.menuPaused === paused) return;
     this.menuPaused = paused;
     this.hud.showPause(paused);
+    // Applied immediately: a hidden tab stops the frame loop, so tick() would not get to it.
+    this.syncAudio();
+  }
+
+  private syncAudio(): void {
+    this.sfx.setMode(gameAudioMode(this.state, this.menuPaused));
   }
 
   private onWave(ev: WaveEvent): void {
@@ -590,6 +598,7 @@ export class Game {
       this.state = 'dying';
       this.stateTime = 0;
       this.combat.reset();
+      this.enemies.silenceLoops();
       this.sfx.play('death');
     }
   }

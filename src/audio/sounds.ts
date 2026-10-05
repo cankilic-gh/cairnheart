@@ -12,6 +12,8 @@ export interface SoundDef {
   /** Random ± playback-rate spread per play. */
   pitchVar: number;
   loop?: boolean;
+  /** UI sounds bypass the gameplay bus so they still play while the game is paused. */
+  ui?: boolean;
   render(v: Voice, variant: number): void;
 }
 
@@ -561,6 +563,7 @@ export const SOUNDS = {
   },
   waveClear: {
     dur: 1.6,
+    ui: true,
     variants: 1,
     volume: 0.45,
     reverb: 0.55,
@@ -572,6 +575,7 @@ export const SOUNDS = {
   },
   upgrade: {
     dur: 1,
+    ui: true,
     variants: 1,
     volume: 0.45,
     reverb: 0.5,
@@ -586,6 +590,7 @@ export const SOUNDS = {
   },
   ui: {
     dur: 0.08,
+    ui: true,
     variants: 2,
     volume: 0.3,
     reverb: 0.05,

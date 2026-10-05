@@ -215,6 +215,11 @@ export class EnemyManager {
     return best;
   }
 
+  /** Stops every enemy loop (lit fuses) without removing anyone, e.g. when the hero falls. */
+  silenceLoops(): void {
+    for (const e of this.enemies) this.silence(e);
+  }
+
   clear(): void {
     for (const e of this.enemies) {
       this.silence(e);

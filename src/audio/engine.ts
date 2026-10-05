@@ -1,7 +1,7 @@
 import { hashString, mulberry32 } from '../core/rng';
 import type { Vec2 } from '../entities/hero/motion';
 import { finish, hallImpulse, whiteNoise, type Voice } from './dsp';
-import { VoiceLimiter, spatialize } from './mix';
+import { VoiceLimiter, spatialize, type GameAudioMode } from './mix';
 import { SOUNDS, type SoundDef, type SoundId } from './sounds';
 
 export interface PlayOptions {
@@ -37,8 +37,10 @@ export class Sfx {
   muted = false;
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
-  private menuFilter: BiquadFilterNode | null = null;
-  private bus: GainNode | null = null;
+  private muffle: BiquadFilterNode | null = null;
+  private gameBus: GainNode | null = null;
+  private uiBus: GainNode | null = null;
+  private mode: GameAudioMode = 'live';
   private reverbIn: GainNode | null = null;
   private readonly bank = new Map<SoundId, AudioBuffer[]>();
   private readonly limiters = new Map<SoundId, VoiceLimiter<Active>>();
@@ -73,18 +75,22 @@ export class Sfx {
       comp.release.value = 0.18;
       this.master = ctx.createGain();
       this.master.gain.value = MASTER;
-      this.menuFilter = ctx.createBiquadFilter();
-      this.menuFilter.type = 'lowpass';
-      this.menuFilter.frequency.value = 20000;
-      this.bus = ctx.createGain();
-      this.bus.connect(comp);
-      comp.connect(this.menuFilter).connect(this.master).connect(ctx.destination);
+      comp.connect(this.master).connect(ctx.destination);
+      // Gameplay sounds (and their reverb) share one bus that pause can silence; UI has its own.
+      this.gameBus = ctx.createGain();
+      this.muffle = ctx.createBiquadFilter();
+      this.muffle.type = 'lowpass';
+      this.muffle.frequency.value = 20000;
+      this.gameBus.connect(this.muffle).connect(comp);
+      this.uiBus = ctx.createGain();
+      this.uiBus.connect(comp);
       const convolver = ctx.createConvolver();
       convolver.buffer = hallImpulse(ctx, 2.2, mulberry32(11));
       this.reverbIn = ctx.createGain();
       const wet = ctx.createGain();
       wet.gain.value = 0.55;
-      this.reverbIn.connect(convolver).connect(wet).connect(comp);
+      this.reverbIn.connect(convolver).connect(wet).connect(this.gameBus);
+      this.applyMode(true);
       void this.renderBank(ctx);
     }
     if (this.ctx.state === 'suspended') void this.ctx.resume();
@@ -102,11 +108,18 @@ export class Sfx {
     this.right = right;
   }
 
-  /** Muffles and ducks the mix while a menu covers the game. */
-  setMenu(open: boolean): void {
-    if (!this.ctx || !this.menuFilter) return;
-    const t = this.ctx.currentTime;
-    this.menuFilter.frequency.setTargetAtTime(open ? 700 : 20000, t, 0.08);
+  /** Silences, muffles or restores gameplay audio; safe to call every frame. */
+  setMode(mode: GameAudioMode): void {
+    if (mode === this.mode) return;
+    this.mode = mode;
+    this.applyMode(false);
+  }
+
+  /** A hidden tab gets no audio at all; the context resumes when the page is visible again. */
+  setHidden(hidden: boolean): void {
+    if (!this.ctx) return;
+    if (hidden) void this.ctx.suspend();
+    else void this.ctx.resume();
   }
 
   play(id: SoundId, o: PlayOptions = {}): void {
@@ -148,7 +161,7 @@ export class Sfx {
 
   /** Ambient bed and the occasional water drip somewhere in the vault. */
   update(dt: number): void {
-    if (!this.ready || this.muted) return;
+    if (!this.ready || this.muted || this.mode !== 'live') return;
     this.dripIn -= dt;
     if (this.dripIn <= 0) {
       this.dripIn = 2.5 + this.rng() * 6;
@@ -161,9 +174,11 @@ export class Sfx {
   private start(id: SoundId, o: PlayOptions, loop: boolean): Active | null {
     const ctx = this.ctx;
     const buffers = this.bank.get(id);
-    if (!ctx || !this.bus || !this.reverbIn || !buffers || this.muted) return null;
-    if (DETAIL.has(id) && this.voiceCount >= BUSY_VOICES) return null;
     const def: SoundDef = SOUNDS[id];
+    const bus = def.ui ? this.uiBus : this.gameBus;
+    if (!ctx || !bus || !this.reverbIn || !buffers || this.muted) return null;
+    if (!def.ui && this.mode === 'paused') return null;
+    if (DETAIL.has(id) && this.voiceCount >= BUSY_VOICES) return null;
     const src = ctx.createBufferSource();
     src.buffer = buffers[Math.floor(this.rng() * buffers.length)]!;
     src.loop = loop;
@@ -174,8 +189,8 @@ export class Sfx {
     const panner = ctx.createStereoPanner();
     panner.pan.value = s.pan;
     out.panner = panner;
-    src.connect(out).connect(panner).connect(this.bus);
-    if (def.reverb > 0) {
+    src.connect(out).connect(panner).connect(bus);
+    if (def.reverb > 0 && !def.ui) {
       const send = ctx.createGain();
       send.gain.value = def.reverb;
       out.connect(send).connect(this.reverbIn);
@@ -194,6 +209,23 @@ export class Sfx {
       cut.src.stop(t + 0.08);
     }
     return voice;
+  }
+
+  private applyMode(instant: boolean): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.gameBus || !this.muffle) return;
+    const t = ctx.currentTime;
+    const level = this.mode === 'paused' ? 0 : this.mode === 'muffled' ? 0.55 : 1;
+    const cutoff = this.mode === 'live' ? 20000 : 700;
+    if (instant) {
+      this.gameBus.gain.value = level;
+      this.muffle.frequency.value = cutoff;
+      return;
+    }
+    this.gameBus.gain.cancelScheduledValues(t);
+    this.gameBus.gain.setTargetAtTime(level, t, this.mode === 'paused' ? 0.025 : 0.08);
+    this.muffle.frequency.cancelScheduledValues(t);
+    this.muffle.frequency.setTargetAtTime(cutoff, t, 0.06);
   }
 
   private async renderBank(live: AudioContext): Promise<void> {
