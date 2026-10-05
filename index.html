@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#07060c" />
+    <meta name="description" content="Cairnheart: wake the stone guardian of the Sunken Vault and hold it against waves of gloom." />
+    <meta property="og:title" content="Cairnheart" />
+    <meta property="og:description" content="A blocky arena brawler. Wake the stone guardian and hold the Sunken Vault." />
+    <title>Cairnheart</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%2307060c'/%3E%3Crect x='3' y='3' width='10' height='10' fill='%23333843'/%3E%3Crect x='6' y='6' width='4' height='4' fill='%23ffb347'/%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet" />
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-JXD0CE5REX"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-JXD0CE5REX');
+    </script>
+  </head>
+  <body>
+    <div id="app" aria-label="Game view"></div>
+    <div class="vignette" aria-hidden="true"></div>
+    <div id="hurt" class="hurt" aria-hidden="true"></div>
+    <div id="overlay" class="overlay" aria-hidden="true"></div>
+
+    <header class="hud-title">
+      <h1>Cairnheart</h1>
+      <p>Hold the Sunken Vault</p>
+    </header>
+
+    <section class="hud-wave" aria-live="polite">
+      <div id="wave" class="hud-wave-title">GET READY</div>
+      <div class="hud-wave-info"><span id="remaining">0</span> left &middot; <span id="score">0</span> pts</div>
+      <div id="boss" class="boss" hidden>
+        <div class="boss-name">Gloom Matriarch</div>
+        <div class="boss-bar">
+          <div id="boss-trail" class="boss-trail"></div>
+          <div id="boss-fill" class="boss-fill"></div>
+        </div>
+      </div>
+    </section>
+
+    <div class="hud-corner">
+      <button id="pause" class="hud-btn hud-icon" type="button" aria-label="Pause">II</button>
+      <button id="mute" class="hud-btn" type="button" aria-pressed="false">SOUND ON</button>
+    </div>
+
+    <div id="combo" class="combo" aria-hidden="true">
+      <span id="combo-mult" class="combo-mult">x1</span>
+      <span id="combo-count" class="combo-count">0 chain</span>
+      <div class="combo-timer"><div id="combo-fill" class="combo-fill"></div></div>
+    </div>
+
+    <section class="hud-health" aria-label="Health">
+      <div class="hud-health-label"><span>HEART</span><span id="hp-text">300 / 300</span></div>
+      <div class="hp-bar">
+        <div id="hp-trail" class="hp-trail"></div>
+        <div id="hp-fill" class="hp-fill"></div>
+      </div>
+    </section>
+
+    <section class="hud-controls" aria-label="Controls">
+      <ul class="keys-desktop">
+        <li><span class="keycap-row"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span> Move</li>
+        <li><kbd class="wide">Shift</kbd> Run</li>
+        <li><kbd class="wide">Mouse</kbd> Aim</li>
+        <li><kbd class="wide">Esc</kbd> Pause</li>
+        <li><kbd>M</kbd> Sound</li>
+      </ul>
+      <p class="keys-touch">Drag to move &middot; push to the rim to run</p>
+    </section>
+
+    <nav class="abilities" aria-label="Abilities">
+      <button class="ability ability-quake" type="button" data-ability="quake" style="--cd: 0">
+        <span class="ability-name">Quake</span><kbd>R</kbd>
+      </button>
+      <button class="ability ability-spin" type="button" data-ability="spin" style="--cd: 0">
+        <span class="ability-name">Spin</span><kbd>L</kbd>
+      </button>
+      <button class="ability ability-beam" type="button" data-ability="beam" style="--cd: 0">
+        <span class="ability-name">Beam</span><kbd>K</kbd>
+      </button>
+      <button class="ability ability-attack" type="button" data-ability="attack" style="--cd: 0">
+        <span class="ability-name">Swipe</span><kbd>J</kbd>
+      </button>
+    </nav>
+
+    <div id="banner" class="banner" aria-live="assertive">
+      <h2 id="banner-title"></h2>
+      <p id="banner-sub"></p>
+    </div>
+
+    <section id="upgrade" class="modal" hidden aria-labelledby="upgrade-title">
+      <div class="modal-card upgrade-card">
+        <h2 id="upgrade-title">Wave cleared</h2>
+        <p class="modal-sub">Choose a blessing</p>
+        <div id="upgrade-options" class="upgrade-options"></div>
+      </div>
+    </section>
+
+    <section id="paused" class="modal" hidden aria-labelledby="paused-title">
+      <div class="modal-card">
+        <h2 id="paused-title">Paused</h2>
+        <div class="modal-actions">
+          <button id="resume" class="hud-btn" type="button">RESUME</button>
+          <button id="pause-restart" class="hud-btn" type="button">RESTART</button>
+        </div>
+        <p class="modal-hint">Esc to resume</p>
+      </div>
+    </section>
+
+    <section id="gameover" class="modal" hidden aria-labelledby="gameover-title">
+      <div class="modal-card gameover-card">
+        <h2 id="gameover-title">The Heart Goes Dark</h2>
+        <p id="gameover-stats"></p>
+        <p id="gameover-best" class="gameover-best"></p>
+        <button id="restart" class="hud-btn gameover-btn" type="button">PLAY AGAIN</button>
+        <p class="modal-hint">or press Enter</p>
+      </div>
+    </section>
+
+    <div id="joy" class="joy" aria-hidden="true"><div id="joy-knob" class="joy-knob"></div></div>
+    <div id="debug" class="debug" aria-hidden="true"></div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
