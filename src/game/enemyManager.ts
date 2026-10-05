@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { AttackSpec } from '../combat/attacks';
 import { directionFrom, inArc, inBeam, inCircle } from '../combat/geometry';
-import type { Sfx } from '../core/audio';
+import type { LoopHandle, Sfx } from '../audio/engine';
 import type { CameraRig } from '../core/cameraRig';
 import { EMERGE_TIME, configFor, createEnemy, damageEnemy, pushEnemy, separate, stepEnemy } from '../entities/enemies/brain';
 import type { EnemyEvent, EnemyKind, EnemyState } from '../entities/enemies/types';
@@ -17,7 +17,8 @@ import { Projectiles } from './projectiles';
 interface Enemy {
   state: EnemyState;
   view: EnemyView;
-  stopHiss: (() => void) | null;
+  fuse: LoopHandle | null;
+  lastMode: EnemyState['mode'];
 }
 
 export interface ScreenPoint {
@@ -69,6 +70,7 @@ export class EnemyManager {
       z: gate.position.z + gate.inward.x * lateral - gate.inward.z * 0.6,
     };
     const state = this.spawnAt(kind, pos, { x: gate.inward.x, z: gate.inward.z }, elite, speedScale, bossLevel);
+    this.ctx.sfx.play(kind === 'matriarch' ? 'summon' : 'emerge', { at: pos });
     for (let i = 0; i < (kind === 'matriarch' ? 60 : 14); i++) {
       this.ctx.embers.spawn({
         x: pos.x + (Math.random() - 0.5) * 1.5,
@@ -91,7 +93,7 @@ export class EnemyManager {
     const view = new EnemyView(kind, elite);
     view.sync(state, this.time);
     this.ctx.scene.add(view.group);
-    this.enemies.push({ state, view, stopHiss: null });
+    this.enemies.push({ state, view, fuse: null, lastMode: state.mode });
     return state;
   }
 
@@ -103,9 +105,16 @@ export class EnemyManager {
     for (const e of this.enemies) {
       if (e.state.phase === 'dead') continue;
       events.push(...stepEnemy(e.state, hero, heroRadius, dt));
-      const fusing = e.state.cfg.kind === 'burster' && e.state.mode === 'fuse';
-      if (fusing && !e.stopHiss && e.state.cfg.kind === 'burster') e.stopHiss = this.ctx.sfx.hiss(e.state.cfg.fuseTime);
-      if (!fusing && e.stopHiss) this.silence(e);
+      const s = e.state;
+      const fusing = s.cfg.kind === 'burster' && s.mode === 'fuse' && s.phase !== 'dead';
+      if (fusing && !e.fuse) e.fuse = this.ctx.sfx.loop('fuse', { at: s.pos });
+      if (fusing && e.fuse) {
+        e.fuse.setPosition(s.pos);
+        e.fuse.setRate(1 + s.charge * 0.9);
+      }
+      if (!fusing && e.fuse) this.silence(e);
+      if (s.mode !== e.lastMode && s.mode === 'crouch') this.ctx.sfx.play('lunge', { at: s.pos });
+      e.lastMode = s.mode;
     }
     for (const ev of events) this.handle(ev);
     this.prune();
@@ -223,14 +232,16 @@ export class EnemyManager {
       case 'shoot':
         this.projectiles.spawn(ev.from, ev.dir, ev.speed, ev.damage, ev.y);
         for (let i = 0; i < 5; i++) this.spark(ev.from.x, ev.y, ev.from.z, 1.5, VIOLET_SPARKS, 0.25);
-        this.ctx.sfx.spit();
+        if (ev.volley === 'lead') this.ctx.sfx.play('nova', { at: ev.from });
+        else if (ev.volley !== 'silent') this.ctx.sfx.play('spit', { at: ev.from });
         break;
       case 'bite':
+        this.ctx.sfx.play('bite', { at: ev.source.pos });
         this.ctx.onHeroDamaged(ev.damage, ev.source.pos, 'bite');
         break;
       case 'telegraph':
         this.ctx.effects.telegraph(ev.at.x, ev.at.z, ev.radius, ev.duration);
-        this.ctx.sfx.rumble(ev.duration);
+        this.ctx.sfx.play('bossWarn', { at: ev.at });
         break;
       case 'slam': {
         const { x, z } = ev.at;
@@ -239,7 +250,7 @@ export class EnemyManager {
         for (let i = 0; i < 40; i++) this.shard(x, 0.3, z, 2 + Math.random() * 4, 0.12 + Math.random() * 0.1);
         const d = Math.hypot(this.heroPos.x - x, this.heroPos.z - z);
         this.ctx.cameraRig.kick(Math.max(0.15, 0.55 * (1 - d / 14)));
-        this.ctx.sfx.explode(0.8);
+        this.ctx.sfx.play('slam', { at: ev.at });
         if (d <= ev.radius + this.heroRadius) this.ctx.onHeroDamaged(ev.damage, ev.at, 'slam');
         break;
       }
@@ -254,7 +265,7 @@ export class EnemyManager {
           for (let k = 0; k < 10; k++) this.spark(s.pos.x, 0.6, s.pos.z, 2, VIOLET_SPARKS);
         }
         this.ctx.effects.shockwave(src.pos.x, src.pos.z, 4, 0xb46bff, 0.6);
-        this.ctx.sfx.waveStart();
+        this.ctx.sfx.play('summon', { at: src.pos });
         break;
       }
     }
@@ -275,7 +286,7 @@ export class EnemyManager {
 
     const dh = Math.hypot(this.heroPos.x - x, this.heroPos.z - z);
     this.ctx.cameraRig.kick(Math.max(0.12, 0.6 * (1 - dh / 14)));
-    this.ctx.sfx.explode(Math.max(0.35, 1 - dh / 20));
+    this.ctx.sfx.play('explode', { at: c.pos });
     const reach = R + this.heroRadius;
     if (dh <= reach) this.ctx.onHeroDamaged(damage * (1 - 0.5 * (dh / reach)), c.pos, 'blast');
 
@@ -305,9 +316,8 @@ export class EnemyManager {
     if (big) {
       this.ctx.effects.flash(c.pos.x, 2, c.pos.z, 80, 0.8, 0xc77dff);
       this.ctx.cameraRig.kick(0.6);
-      this.ctx.sfx.explode(1);
     }
-    this.ctx.sfx.pop();
+    this.ctx.sfx.play(big ? 'bossDeath' : 'shatter', { at: c.pos });
     this.ctx.onKill(c);
   }
 
@@ -353,8 +363,8 @@ export class EnemyManager {
   }
 
   private silence(e: Enemy): void {
-    e.stopHiss?.();
-    e.stopHiss = null;
+    e.fuse?.stop();
+    e.fuse = null;
   }
 
   private prune(): void {

@@ -39,6 +39,7 @@ const fmt = new Intl.NumberFormat('en-US');
 export class Hud {
   readonly abilityButtons: Map<Ability, HTMLButtonElement>;
   readonly mute = byId<HTMLButtonElement>('mute');
+  readonly stats = byId<HTMLButtonElement>('stats');
   readonly pause = byId<HTMLButtonElement>('pause');
   readonly resume = byId<HTMLButtonElement>('resume');
   readonly pauseRestart = byId<HTMLButtonElement>('pause-restart');

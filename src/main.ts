@@ -11,11 +11,7 @@ const $ = (id: string): HTMLElement => {
 };
 
 const params = new URLSearchParams(window.location.search);
-const debug = params.has('debug');
-const debugEl = $('debug');
-if (debug) debugEl.classList.add('is-visible');
-
-const game = new Game($('app'), { joyBase: $('joy'), joyKnob: $('joy-knob'), debug: debug ? debugEl : null });
+const game = new Game($('app'), { joyBase: $('joy'), joyKnob: $('joy-knob'), showStats: params.has('debug') });
 game.start();
 
 if (window.matchMedia('(pointer: coarse)').matches) {

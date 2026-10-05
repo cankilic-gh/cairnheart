@@ -13,6 +13,8 @@ export interface PartSpec {
   y: Range;
   z: Range;
   paint: FacePainter;
+  /** Scales this part's emissive layer (0..1) so one shared material can carry different glow levels. */
+  glow?: number;
 }
 
 export const faceSize = (face: Face, w: number, h: number, d: number): [number, number] =>
@@ -43,6 +45,13 @@ export const buildAtlasModel = (specs: readonly PartSpec[], atlasWidth = 64): At
       const [fw, fh] = faceSize(face, w, h, d);
       const pc = new PixelCanvas(fw, fh);
       spec.paint(face, pc, seed + i * 977);
+      if (spec.glow !== undefined && spec.glow !== 1) {
+        for (let k = 0; k < pc.glow.length; k += 4) {
+          pc.glow[k] = pc.glow[k]! * spec.glow;
+          pc.glow[k + 1] = pc.glow[k + 1]! * spec.glow;
+          pc.glow[k + 2] = pc.glow[k + 2]! * spec.glow;
+        }
+      }
       return pc;
     });
     return { spec, w, h, d, faces };

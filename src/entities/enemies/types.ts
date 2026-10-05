@@ -109,7 +109,7 @@ export interface EnemyState {
 
 export type EnemyEvent =
   | { type: 'explode'; source: EnemyState; radius: number; damage: number }
-  | { type: 'shoot'; from: Vec2; dir: Vec2; speed: number; damage: number; y: number }
+  | { type: 'shoot'; from: Vec2; dir: Vec2; speed: number; damage: number; y: number; volley?: 'lead' | 'silent' }
   | { type: 'bite'; source: EnemyState; damage: number }
   | { type: 'telegraph'; at: Vec2; radius: number; duration: number }
   | { type: 'slam'; source: EnemyState; at: Vec2; radius: number; damage: number }

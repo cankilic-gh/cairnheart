@@ -44,9 +44,19 @@
     </section>
 
     <div class="hud-corner">
-      <button id="pause" class="hud-btn hud-icon" type="button" aria-label="Pause">II</button>
-      <button id="mute" class="hud-btn" type="button" aria-pressed="false">SOUND ON</button>
+      <button id="stats" class="hud-btn hud-icon" type="button" aria-label="Performance stats" aria-pressed="false" title="Stats (F3)"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="9" width="3" height="5"/><rect x="6.5" y="5" width="3" height="9"/><rect x="11" y="2" width="3" height="12"/></svg></button>
+      <button id="pause" class="hud-btn hud-icon" type="button" aria-label="Pause" title="Pause (Esc)"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="2" width="3.5" height="12"/><rect x="9.5" y="2" width="3.5" height="12"/></svg></button>
+      <button id="mute" class="hud-btn hud-icon" type="button" aria-label="Sound" aria-pressed="false" title="Sound (M)"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6h3l4-3v10l-4-3H2z"/><path class="wave" d="M11 5.5c1 .8 1 4.2 0 5M12.8 3.8c2 1.6 2 6.8 0 8.4" fill="none" stroke="currentColor" stroke-width="1.4"/><path class="cross" d="M11 6l4 4M15 6l-4 4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></button>
     </div>
+
+    <section id="perf" class="perf" hidden aria-label="Performance">
+      <div class="perf-row"><span class="perf-k">FPS</span><span id="perf-fps" class="perf-v">--</span><span id="perf-frame" class="perf-sub"></span></div>
+      <div class="perf-row"><span class="perf-k">CPU</span><span id="perf-cpu" class="perf-v">--</span><span id="perf-cpu-pct" class="perf-sub"></span></div>
+      <div class="perf-row"><span class="perf-k">GPU</span><span id="perf-gpu" class="perf-v">--</span><span id="perf-gpu-pct" class="perf-sub"></span></div>
+      <canvas id="perf-graph" class="perf-graph" width="180" height="40"></canvas>
+      <div class="perf-legend"><i class="l-frame"></i>frame <i class="l-cpu"></i>cpu <i class="l-gpu"></i>gpu</div>
+      <pre id="perf-detail" class="perf-detail"></pre>
+    </section>
 
     <div id="combo" class="combo" aria-hidden="true">
       <span id="combo-mult" class="combo-mult">x1</span>
@@ -68,6 +78,7 @@
         <li><kbd class="wide">Shift</kbd> Run</li>
         <li><kbd class="wide">Mouse</kbd> Aim</li>
         <li><kbd class="wide">Esc</kbd> Pause</li>
+        <li><kbd class="wide">F3</kbd> Stats</li>
         <li><kbd>M</kbd> Sound</li>
       </ul>
       <p class="keys-touch">Drag to move &middot; push to the rim to run</p>
@@ -123,7 +134,6 @@
     </section>
 
     <div id="joy" class="joy" aria-hidden="true"><div id="joy-knob" class="joy-knob"></div></div>
-    <div id="debug" class="debug" aria-hidden="true"></div>
 
     <script type="module" src="/src/main.ts"></script>
   </body>

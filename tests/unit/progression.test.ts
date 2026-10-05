@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { VoiceLimiter, spatialize } from '../../src/audio/mix';
+import { ResolutionGovernor, RollingStats } from '../../src/core/perf';
 import { mulberry32 } from '../../src/core/rng';
 import { projectileHits } from '../../src/game/projectiles';
 import { ScoreKeeper } from '../../src/game/score';
@@ -64,5 +66,47 @@ describe('projectiles', () => {
     expect(projectileHits(p, { x: 0, z: 0 }, 1.25)).toBe(true);
     p.pos.x = 1.6;
     expect(projectileHits(p, { x: 0, z: 0 }, 1.25)).toBe(false);
+  });
+});
+
+
+describe('perf helpers', () => {
+  it('keeps a rolling window', () => {
+    const s = new RollingStats(3);
+    [1, 2, 3, 4].forEach((v) => s.push(v));
+    expect(s.length).toBe(3);
+    expect(s.avg).toBeCloseTo(3);
+    expect(s.max).toBe(4);
+    expect(s.at(0)).toBe(4);
+    expect(s.at(2)).toBe(2);
+  });
+
+  it('drops the render scale under sustained load and restores it with headroom', () => {
+    const g = new ResolutionGovernor(1.5, 0.75, 0.25);
+    let changed = false;
+    for (let t = 0; t < 2 && !changed; t += 1 / 60) changed = g.update(20, 16.7, 1 / 60);
+    expect(g.scale).toBe(1.25);
+    for (let t = 0; t < 6; t += 1 / 60) g.update(4, 16.7, 1 / 60);
+    expect(g.scale).toBe(1.5);
+  });
+});
+
+describe('audio mix', () => {
+  it('pans by the screen axis and fades with distance', () => {
+    const left = spatialize({ x: 0, z: 0 }, { x: 1, z: 0 }, { x: -11, z: 0 });
+    expect(left.pan).toBeCloseTo(-0.85);
+    const near = spatialize({ x: 0, z: 0 }, { x: 1, z: 0 }, { x: 0, z: 1 });
+    const far = spatialize({ x: 0, z: 0 }, { x: 1, z: 0 }, { x: 0, z: 30 });
+    expect(near.gain).toBeGreaterThan(far.gain);
+    expect(far.gain).toBeGreaterThanOrEqual(0.22);
+  });
+
+  it('cuts the oldest voice when a sound is over its limit', () => {
+    const v = new VoiceLimiter<string>(2);
+    expect(v.add('a')).toBeUndefined();
+    expect(v.add('b')).toBeUndefined();
+    expect(v.add('c')).toBe('a');
+    v.remove('b');
+    expect(v.size).toBe(1);
   });
 });

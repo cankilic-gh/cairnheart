@@ -66,7 +66,7 @@ export class Effects {
 
   constructor(private readonly scene: THREE.Scene) {
     // Fixed pool: adding lights at runtime would force every material to recompile.
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 1; i++) {
       const light = new THREE.PointLight(0xffb347, 0, 10, 1.8);
       scene.add(light);
       this.lights.push({ light, t: 1, duration: 1, peak: 0 });

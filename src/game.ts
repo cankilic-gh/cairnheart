@@ -1,15 +1,16 @@
 import * as THREE from 'three';
 import { ABILITIES, ATTACKS, type Ability, type AttackSpec } from './combat/attacks';
 import { HeroCombat, type ActiveAction, type HitEvent } from './combat/heroCombat';
-import { Sfx } from './core/audio';
+import { Sfx } from './audio/engine';
 import { CameraRig } from './core/cameraRig';
 import { Input, type InputAction } from './core/input';
 import { smoothstep } from './core/math';
+import { GpuTimer, ResolutionGovernor, RollingStats } from './core/perf';
 import { loadBest, saveBest } from './core/storage';
 import type { EnemyState } from './entities/enemies/types';
 import { HeroAnimator, type FootSide } from './entities/hero/animator';
 import { buildHero, type HeroRig } from './entities/hero/model';
-import { MOTION, createMotionState, stepMotion, wrapAngle, type MotionConfig, type MoveIntent, type Vec2 } from './entities/hero/motion';
+import { MOTION, cameraBasis, createMotionState, stepMotion, wrapAngle, type MotionConfig, type MoveIntent, type Vec2 } from './entities/hero/motion';
 import { Effects } from './fx/effects';
 import { ParticlePool, EmberMotes, pointScale } from './fx/particles';
 import { EnemyManager, type HeroDamageSource, type ScreenPoint } from './game/enemyManager';
@@ -19,6 +20,7 @@ import { WaveDirector, type WaveEvent } from './game/waves';
 import { applyFlash, createFlash } from './render/flash';
 import { createPost, type Post } from './render/post';
 import { Hud } from './ui/hud';
+import { PerfPanel } from './ui/perfPanel';
 import { buildArena, type Arena } from './world/arena';
 import { ARENA } from './world/arenaConfig';
 
@@ -31,6 +33,10 @@ const INTRO_END = 2.3;
 const DEATH_TIME = 2.2;
 const RISE_DEPTH = 3.8;
 const STILL: MoveIntent = { x: 0, y: 0, run: false };
+/** Frame cap: high-refresh displays render every other vsync instead of doubling GPU load. */
+const TARGET_FPS = 60;
+const BUDGET_MS = 1000 / TARGET_FPS;
+const HALTED_FPS = 20;
 /** Height and forward offset of the heart crystal, where the core beam leaves the body. */
 const HEART_Y = 1.35;
 const HEART_FORWARD = 1.05;
@@ -79,6 +85,7 @@ export class Game {
   private readonly ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   private readonly tmp = new THREE.Vector3();
   private readonly ndc = new THREE.Vector2();
+  private readonly tmp2 = new THREE.Vector2();
   private motionCfg: MotionConfig = MOTION;
   private offered: UpgradeId[] = [];
   private elapsed = 0;
@@ -87,20 +94,30 @@ export class Game {
   private roared = false;
   private hitStop = 0;
   private invuln = 0;
-  private last = performance.now();
-  private fps = 60;
+  private lastFrame = 0;
+  private readonly frameStats = new RollingStats(180);
+  private readonly cpuStats = new RollingStats(180);
+  private readonly gpuStats = new RollingStats(180);
+  private readonly gpuTimer: GpuTimer;
+  private readonly governor: ResolutionGovernor;
+  private readonly perf: PerfPanel;
 
   constructor(
     private readonly container: HTMLElement,
-    private readonly hudRefs: { joyBase: HTMLElement; joyKnob: HTMLElement; debug: HTMLElement | null },
+    hudRefs: { joyBase: HTMLElement; joyKnob: HTMLElement; showStats: boolean },
   ) {
     const coarse = window.matchMedia('(pointer: coarse)').matches;
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, coarse ? 1.5 : 2));
+    // The composer renders into its own targets, so canvas MSAA would only cost bandwidth.
+    this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+    this.governor = new ResolutionGovernor(Math.min(window.devicePixelRatio, coarse ? 1.25 : 1.5), 0.75, 0.25);
+    this.renderer.setPixelRatio(this.governor.scale);
+    this.gpuTimer = new GpuTimer(this.renderer.getContext() as WebGL2RenderingContext);
+    this.perf = new PerfPanel(hudRefs.showStats);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.3;
+    this.renderer.info.autoReset = false;
     container.appendChild(this.renderer.domElement);
 
     const bg = new THREE.Color(0x07060c);
@@ -110,7 +127,7 @@ export class Game {
     this.scene.add(new THREE.HemisphereLight(0x76809a, 0x0d0b12, 1.45));
     this.moon = new THREE.DirectionalLight(0xdfe6ff, 2.2);
     this.moon.castShadow = true;
-    this.moon.shadow.mapSize.set(2048, 2048);
+    this.moon.shadow.mapSize.set(1024, 1024);
     const sc = this.moon.shadow.camera;
     sc.left = -12;
     sc.right = 12;
@@ -161,11 +178,17 @@ export class Game {
     this.input.onAction = (a, fromMouse) => this.action(a, fromMouse);
     this.input.onZoom = (dy) => this.cameraRig.zoomBy(dy);
     this.input.onFirstGesture = () => this.sfx.unlock();
-    this.hud.mute.addEventListener('click', () => this.action('mute', false));
-    this.hud.pause.addEventListener('click', () => this.action('pause', false));
-    this.hud.resume.addEventListener('click', () => this.setMenuPaused(false));
-    this.hud.pauseRestart.addEventListener('click', () => this.restart());
-    this.hud.restart.addEventListener('click', () => this.action('restart', false));
+    const click = (fn: () => void) => () => {
+      this.sfx.unlock();
+      this.sfx.play('ui');
+      fn();
+    };
+    this.hud.mute.addEventListener('click', click(() => this.action('mute', false)));
+    this.hud.stats.addEventListener('click', click(() => this.action('stats', false)));
+    this.hud.pause.addEventListener('click', click(() => this.action('pause', false)));
+    this.hud.resume.addEventListener('click', click(() => this.setMenuPaused(false)));
+    this.hud.pauseRestart.addEventListener('click', click(() => this.restart()));
+    this.hud.restart.addEventListener('click', click(() => this.action('restart', false)));
     for (const [ability, btn] of this.hud.abilityButtons) {
       btn.addEventListener('pointerdown', (e) => {
         e.stopPropagation();
@@ -191,10 +214,19 @@ export class Game {
 
   start(): void {
     const frame = (now: number) => {
-      const dt = Math.min((now - this.last) / 1000, 1 / 20);
-      this.last = now;
-      if (!this.frozen) this.tick(dt);
       requestAnimationFrame(frame);
+      const since = now - this.lastFrame;
+      const halted = this.menuPaused || this.state === 'upgrade' || this.state === 'over';
+      if (since < (1000 / (halted ? HALTED_FPS : TARGET_FPS)) * 0.82) return;
+      this.lastFrame = now;
+      if (this.frozen) return;
+      const dt = Math.min(since / 1000, 1 / 20);
+      const t0 = performance.now();
+      this.tick(dt);
+      if (since < 250) this.frameStats.push(since);
+      this.cpuStats.push(performance.now() - t0);
+      this.gpuStats.push(this.gpuTimer.poll());
+      this.adaptResolution(dt, halted);
     };
     requestAnimationFrame(frame);
   }
@@ -213,7 +245,6 @@ export class Game {
 
   tick(dt: number): void {
     this.elapsed += dt;
-    if (dt > 0) this.fps += (1 / dt - this.fps) * 0.05;
     const halted = this.menuPaused || this.state === 'upgrade';
     const sim = halted ? 0 : this.hitStop > 0 ? dt * 0.06 : dt;
     if (!halted) {
@@ -254,6 +285,9 @@ export class Game {
       this.score.update(sim);
     }
     if (this.state === 'dying') this.updateDeath();
+    this.sfx.setListener(this.motion.pos, cameraBasis(this.cameraRig.azimuth).right);
+    this.sfx.setMenu(halted || this.state === 'over');
+    this.sfx.update(dt);
     this.heroFlash.uFlash.value = Math.max(0, this.heroFlash.uFlash.value - sim * 2.5);
 
     this.moon.position.set(root.position.x + 8, 16, root.position.z + 3);
@@ -265,8 +299,24 @@ export class Game {
     this.dust.update(sim);
     this.embers.update(sim);
     this.motes.update(dt);
+    this.renderer.info.reset();
+    this.gpuTimer.begin();
     this.post.composer.render(dt);
-    this.updateHud();
+    this.gpuTimer.end();
+    this.updateHud(dt);
+  }
+
+  /** Lowers the render scale while frames run over budget, raises it again with headroom. */
+  private adaptResolution(dt: number, halted: boolean): void {
+    if (halted) return;
+    const gpu = this.gpuTimer.lastMs;
+    const measured = this.gpuTimer.supported && Number.isFinite(gpu);
+    const changed = measured
+      ? this.governor.update(Math.max(gpu, this.cpuStats.at(0)), BUDGET_MS, dt)
+      : this.governor.update(this.frameStats.at(0), BUDGET_MS * 1.3, dt, false);
+    if (!changed) return;
+    this.renderer.setPixelRatio(this.governor.scale);
+    this.resize();
   }
 
   // ---------- flow ----------
@@ -286,7 +336,7 @@ export class Game {
     if (!this.roared && t >= INTRO_RISE) {
       this.roared = true;
       this.animator.triggerRoar();
-      this.sfx.roar();
+      this.sfx.play('roar');
       this.burstEmbers(40);
     }
     if (t >= INTRO_END) this.beginPlay();
@@ -348,12 +398,13 @@ export class Game {
       this.hud.setWave(ev.wave);
       if (ev.boss) this.hud.showBanner(`WAVE ${ev.wave}`, 'The Gloom Matriarch rises', 2800, true);
       else this.hud.showBanner(`WAVE ${ev.wave}`, `${ev.total} gloomlings incoming`);
-      this.sfx.waveStart();
+      this.sfx.play('waveStart');
     } else if (ev.kind === 'spawn') {
       const gate = this.arena.gates.find((g) => g.id === ev.order.gate)!;
       this.enemies.spawn(ev.order.kind, gate, ev.order.elite, ev.speedScale, ev.bossLevel);
     } else {
       const bonus = this.score.waveBonus(ev.wave);
+      this.sfx.play('waveClear');
       this.hp = Math.min(this.stats.maxHp, this.hp + Math.round(this.stats.maxHp * WAVE_HEAL));
       this.offerUpgrades(`Wave ${ev.wave} cleared · +${bonus}`);
     }
@@ -381,7 +432,7 @@ export class Game {
     this.hud.hideUpgrades();
     this.state = 'playing';
     this.burstEmbers(30);
-    this.sfx.pop();
+    this.sfx.play('upgrade');
   }
 
   private applyStats(): void {
@@ -395,7 +446,6 @@ export class Game {
   private action(a: InputAction, fromMouse: boolean): void {
     if (a === 'mute') {
       const muted = this.sfx.toggleMute();
-      this.hud.mute.textContent = muted ? 'SOUND OFF' : 'SOUND ON';
       this.hud.mute.setAttribute('aria-pressed', String(muted));
       return;
     }
@@ -405,6 +455,10 @@ export class Game {
     }
     if (a === 'pause') {
       this.setMenuPaused(!this.menuPaused);
+      return;
+    }
+    if (a === 'stats') {
+      this.perf.toggle();
       return;
     }
     if (a === 'pick1' || a === 'pick2' || a === 'pick3') {
@@ -419,19 +473,19 @@ export class Game {
     switch (a.id) {
       case 'swipeR':
       case 'swipeL':
-        this.sfx.swing();
+        this.sfx.play('swing');
         break;
       case 'slam':
-        this.sfx.swing(true);
+        this.sfx.play('swingHeavy');
         break;
       case 'beam':
-        this.sfx.beamCharge(0.5);
+        this.sfx.play('beamCharge');
         break;
       case 'spin':
-        this.sfx.spin();
+        this.sfx.play('spin');
         break;
       case 'quake':
-        this.sfx.roar();
+        this.sfx.play('quake');
         break;
     }
   }
@@ -470,7 +524,7 @@ export class Game {
         this.effects.flash(cx, 0.6, cz, 25, 0.25);
         for (let i = 0; i < 30; i++) this.spawnDust(cx, cz, 0.8, 1, 2.2);
         this.cameraRig.kick(spec.shake);
-        this.sfx.footstep(1.4);
+        this.sfx.play('slam', { at: { x: cx, z: cz }, volume: 0.85 });
         break;
       }
       case 'beam': {
@@ -479,7 +533,7 @@ export class Game {
         this.effects.beam(ox, HEART_Y, oz, ev.yaw, (spec.shape.kind === 'beam' ? spec.shape.length : 14) - HEART_FORWARD);
         this.effects.flash(ox, HEART_Y, oz, 30, 0.35);
         this.cameraRig.kick(spec.shake);
-        this.sfx.beamBlast();
+        this.sfx.play('beamBlast');
         break;
       }
       case 'spin':
@@ -493,20 +547,21 @@ export class Game {
         for (let i = 0; i < 40; i++) this.spawnDust(x, z, 1.5, 1, 2.5);
         this.enemies.shatterProjectiles(this.motion.pos, radius);
         this.cameraRig.kick(spec.shake);
-        this.sfx.footstep(1.6);
         break;
       }
     }
     if (hits > 0 && spec.damage > 0) {
       this.hitStop = Math.max(this.hitStop, spec.hitStop);
       this.cameraRig.kick(spec.shake * 0.6);
-      this.sfx.hit(spec.damage * damage >= 50 ? 1.3 : 0.8);
+      this.sfx.play(spec.damage * damage >= 50 ? 'hitHeavy' : 'hit');
     }
   }
 
   private onKill(e: EnemyState): void {
     this.kills += 1;
+    const tier = this.score.multiplier;
     this.score.kill(e.cfg.score);
+    if (this.score.multiplier > tier) this.sfx.play('combo', { pitch: 0.9 + this.score.multiplier * 0.15 });
     if (e.cfg.kind === 'matriarch') this.hud.showBanner('MATRIARCH SLAIN', `+${e.cfg.score * this.score.multiplier} pts`, 2600, true);
     const heal = this.stats.siphon;
     if (heal > 0 && this.state === 'playing' && this.hp < this.stats.maxHp) {
@@ -522,7 +577,7 @@ export class Game {
     this.hp = Math.max(0, this.hp - amount);
     this.heroFlash.uFlash.value = 0.55;
     this.hud.hurt(amount / 60);
-    this.sfx.hurt();
+    this.sfx.play('hurt');
     const p = this.project(this.motion.pos.x, 3.4, this.motion.pos.z);
     if (p.visible) this.hud.damageNumber(p.x, p.y, amount, 'player');
     const dx = this.motion.pos.x - from.x;
@@ -535,6 +590,7 @@ export class Game {
       this.state = 'dying';
       this.stateTime = 0;
       this.combat.reset();
+      this.sfx.play('death');
     }
   }
 
@@ -625,7 +681,7 @@ export class Game {
     for (let i = 0; i < count; i++) this.spawnDust(this.tmp.x, this.tmp.z, 0.25, strength, 1);
     if (Math.random() < 0.6) this.spawnEmber(this.tmp.x, 0.1, this.tmp.z, 0.6);
     this.cameraRig.kick(0.05 + strength * 0.07);
-    this.sfx.footstep(strength);
+    this.sfx.play('step', { at: { x: this.tmp.x, z: this.tmp.z }, volume: 0.6 + strength * 0.4 });
   }
 
   private spawnDust(x: number, z: number, radius: number, strength: number, speedScale: number): void {
@@ -665,7 +721,7 @@ export class Game {
 
   // ---------- hud ----------
 
-  private updateHud(): void {
+  private updateHud(dt: number): void {
     this.hud.setHealth(this.hp, this.stats.maxHp);
     this.hud.setStatus(this.enemies.alive + this.waves.pending, this.score.score);
     this.hud.setCombo(this.score.combo, this.score.multiplier, this.score.comboFraction);
@@ -674,11 +730,23 @@ export class Game {
     const actionAbility = this.combat.action ? ATTACKS[this.combat.action.id].ability : null;
     for (const a of ABILITIES) this.hud.setCooldown(a, this.combat.cooldownFraction(a), actionAbility === a);
     this.hud.updateBars(this.state === 'over' ? [] : this.enemies.bars());
-    const el = this.hudRefs.debug;
-    if (el) {
-      const m = this.motion;
-      el.textContent = `${this.fps.toFixed(0)} fps  speed ${m.speed.toFixed(2)}  pos ${m.pos.x.toFixed(1)},${m.pos.z.toFixed(1)}  enemies ${this.enemies.alive}  shots ${this.enemies.projectiles.list.length}`;
-    }
+    const info = this.renderer.info.render;
+    const size = this.renderer.getDrawingBufferSize(this.tmp2);
+    this.perf.update(dt, {
+      frame: this.frameStats,
+      cpu: this.cpuStats,
+      gpu: this.gpuStats,
+      gpuSupported: this.gpuTimer.supported,
+      budgetMs: BUDGET_MS,
+      draws: info.calls,
+      triangles: info.triangles,
+      width: size.x,
+      height: size.y,
+      scale: this.governor.scale,
+      enemies: this.enemies.alive,
+      shots: this.enemies.projectiles.list.length,
+      voices: this.sfx.ready ? String(this.sfx.voiceCount) : 'off',
+    });
   }
 
   private resize(): void {

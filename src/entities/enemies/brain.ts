@@ -285,6 +285,7 @@ const ring = (e: EnemyState, cfg: MatriarchConfig, offset: number, events: Enemy
       speed: cfg.novaSpeed,
       damage: cfg.novaDamage,
       y: 1.4,
+      volley: i === 0 ? 'lead' : 'silent',
     });
   }
 };

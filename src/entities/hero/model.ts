@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { hashString } from '../../core/rng';
-import { PixelCanvas, pixelMaterial } from '../../render/pixelCanvas';
+import { buildAtlasModel, type FacePainter, type PartSpec } from '../../render/atlasModel';
+import type { PixelCanvas } from '../../render/pixelCanvas';
 import {
   paintBronze,
   paintCrystal,
@@ -14,19 +14,10 @@ import {
 /** One model pixel in world units. The rig is authored in voxel pixel space. */
 export const PX = 1 / 15;
 export const HIP_Y = 10;
+/** Brightest per-part glow; the shared material's emissive intensity, with each part scaled under it. */
+const MAX_GLOW = 2;
 
-type Face = 'px' | 'nx' | 'py' | 'ny' | 'pz' | 'nz';
-const FACES: readonly Face[] = ['px', 'nx', 'py', 'ny', 'pz', 'nz'];
-type Range = readonly [number, number];
-type FacePainter = (face: Face, pc: PixelCanvas, seed: number) => void;
-
-interface BoxSpec {
-  name: string;
-  x: Range;
-  y: Range;
-  z: Range;
-  paint: FacePainter;
-  pulse?: readonly Face[] | 'all';
+interface BoxSpec extends Omit<PartSpec, 'glow'> {
   glow?: number;
 }
 
@@ -50,32 +41,38 @@ export interface HeroRig {
   pulseMaterials: THREE.MeshStandardMaterial[];
 }
 
+/** Collects boxes first, then bakes every face into one atlas so the whole hero shares a material. */
 class RigBuilder {
-  readonly pulse: THREE.MeshStandardMaterial[] = [];
+  private readonly boxes: Array<{ parent: THREE.Object3D; spec: BoxSpec }> = [];
 
-  box(parent: THREE.Object3D, spec: BoxSpec): THREE.Mesh {
-    const w = spec.x[1] - spec.x[0];
-    const h = spec.y[1] - spec.y[0];
-    const d = spec.z[1] - spec.z[0];
-    const seedBase = hashString(spec.name);
-    const mats = FACES.map((face, i) => {
-      const [fw, fh] = face === 'px' || face === 'nx' ? [d, h] : face === 'py' || face === 'ny' ? [w, d] : [w, h];
-      const pc = new PixelCanvas(fw, fh);
-      spec.paint(face, pc, seedBase + i * 977);
-      const mat = pixelMaterial(pc, { glowIntensity: spec.glow ?? 0.7 });
-      if (spec.pulse === 'all' || spec.pulse?.includes(face)) {
-        mat.userData.baseGlow = spec.glow ?? 0.7;
-        this.pulse.push(mat);
-      }
-      return mat;
+  box(parent: THREE.Object3D, spec: BoxSpec): void {
+    this.boxes.push({ parent, spec });
+  }
+
+  build(): THREE.MeshStandardMaterial {
+    const atlas = buildAtlasModel(
+      this.boxes.map(({ spec }) => ({ ...spec, glow: (spec.glow ?? 0.7) / MAX_GLOW })),
+      128,
+    );
+    const material = new THREE.MeshStandardMaterial({
+      map: atlas.map,
+      emissiveMap: atlas.emissiveMap,
+      emissive: 0xffffff,
+      emissiveIntensity: MAX_GLOW,
+      roughness: 0.92,
+      metalness: 0,
     });
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mats);
-    mesh.name = spec.name;
-    mesh.position.set((spec.x[0] + spec.x[1]) / 2, (spec.y[0] + spec.y[1]) / 2, (spec.z[0] + spec.z[1]) / 2);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    parent.add(mesh);
-    return mesh;
+    material.userData.baseGlow = MAX_GLOW;
+    for (const { parent, spec } of this.boxes) {
+      const part = atlas.parts.get(spec.name)!;
+      const mesh = new THREE.Mesh(part.geometry, material);
+      mesh.name = spec.name;
+      mesh.position.copy(part.center);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      parent.add(mesh);
+    }
+    return material;
   }
 }
 
@@ -160,27 +157,27 @@ export const buildHero = (): HeroRig => {
 
   const torso = new THREE.Group();
   hips.add(torso);
-  b.box(torso, { name: 'body', x: [-12, 12], y: [0, 26], z: [-10, 10], paint: paintBody, pulse: ['pz', 'nz'], glow: 0.45 });
+  b.box(torso, { name: 'body', x: [-12, 12], y: [0, 26], z: [-10, 10], paint: paintBody, glow: 0.45 });
   for (const [y, h] of [
     [6, 4],
     [12, 5],
     [18, 4],
   ] as const) {
-    b.box(torso, { name: `ridge${y}`, x: [-2, 2], y: [y, y + h], z: [-12, -10], paint: paintCrystalAll, pulse: 'all', glow: 1.5 });
+    b.box(torso, { name: `ridge${y}`, x: [-2, 2], y: [y, y + h], z: [-12, -10], paint: paintCrystalAll, glow: 1.5 });
   }
 
-  b.box(torso, { name: 'plateUpper', x: [-11, 11], y: [13, 21], z: [9, 14], paint: paintPlateUpper, pulse: ['pz', 'ny'], glow: 0.9 });
-  b.box(torso, { name: 'heartGlow', x: [-9, 9], y: [11, 13], z: [10, 13], paint: paintEmberAll, pulse: 'all', glow: 1 });
+  b.box(torso, { name: 'plateUpper', x: [-11, 11], y: [13, 21], z: [9, 14], paint: paintPlateUpper, glow: 0.9 });
+  b.box(torso, { name: 'heartGlow', x: [-9, 9], y: [11, 13], z: [10, 13], paint: paintEmberAll, glow: 1 });
   const plateLower = new THREE.Group();
   plateLower.position.set(0, 11, 9);
   torso.add(plateLower);
-  b.box(plateLower, { name: 'plateLower', x: [-11, 11], y: [-8, 0], z: [0, 5], paint: paintPlateLower, pulse: ['pz', 'py'], glow: 0.9 });
+  b.box(plateLower, { name: 'plateLower', x: [-11, 11], y: [-8, 0], z: [0, 5], paint: paintPlateLower, glow: 0.9 });
 
   const head = new THREE.Group();
   head.position.set(0, 23, 8);
   torso.add(head);
-  b.box(head, { name: 'head', x: [-6, 6], y: [-2, 8], z: [-4, 6], paint: paintHead, pulse: ['pz'], glow: 0.9 });
-  b.box(head, { name: 'crest', x: [-1, 1], y: [8, 10], z: [-3, 4], paint: (_f, pc, seed) => paintBronze(pc, seed, 0, pc.h) });
+  b.box(head, { name: 'head', x: [-6, 6], y: [-2, 8], z: [-4, 6], paint: paintHead, glow: 0.9 });
+  b.box(head, { name: 'crest', x: [-1, 1], y: [8, 10], z: [-3, 4], paint: (_f: unknown, pc: PixelCanvas, seed: number) => paintBronze(pc, seed, 0, pc.h) });
 
   /** Swept-back amber crystal horns; pivots keep the old secondary-motion springs. */
   const makeHorn = (side: 1 | -1) => {
@@ -191,12 +188,12 @@ export const buildHero = (): HeroRig => {
     const base = new THREE.Group();
     base.rotation.set(-0.35, 0, -0.55 * side);
     pivot.add(base);
-    b.box(base, { name: `horn${side}a`, x: [-1, 1], y: [0, 6], z: [-1, 1], paint: paintCrystalAll, pulse: 'all', glow: 1.7 });
+    b.box(base, { name: `horn${side}a`, x: [-1, 1], y: [0, 6], z: [-1, 1], paint: paintCrystalAll, glow: 1.7 });
     const tip = new THREE.Group();
     tip.position.y = 6;
     tip.rotation.set(-0.3, 0, -0.4 * side);
     base.add(tip);
-    b.box(tip, { name: `horn${side}b`, x: [-1, 1], y: [0, 5], z: [-1, 1], paint: paintCrystalAll, pulse: 'all', glow: 2 });
+    b.box(tip, { name: `horn${side}b`, x: [-1, 1], y: [0, 5], z: [-1, 1], paint: paintCrystalAll, glow: 2 });
     return pivot;
   };
   const hornL = makeHorn(1);
@@ -221,7 +218,7 @@ export const buildHero = (): HeroRig => {
       g.position.z = s.z;
       g.rotation.x = s.rx;
       crown.add(g);
-      b.box(g, { name: `shard${side}${s.z}`, x: [-1, 1], y: [-1, s.h], z: [-1, 1], paint: paintCrystalAll, pulse: 'all', glow: 1.6 });
+      b.box(g, { name: `shard${side}${s.z}`, x: [-1, 1], y: [-1, s.h], z: [-1, 1], paint: paintCrystalAll, glow: 1.6 });
     }
     return pivot;
   };
@@ -248,6 +245,6 @@ export const buildHero = (): HeroRig => {
     footL: legL.foot,
     footR: legR.foot,
     chestLight,
-    pulseMaterials: b.pulse,
+    pulseMaterials: [b.build()],
   };
 };

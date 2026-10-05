@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { fbm, mulberry32, type Rng } from '../core/rng';
 import {
   TILE,
@@ -118,50 +119,83 @@ void main() {
   gl_FragColor = vec4(col, 1.0);
 }`;
 
-interface Brazier {
-  flames: THREE.Mesh[];
-  material: THREE.MeshStandardMaterial;
-  light: THREE.PointLight | null;
-  seed: number;
-}
-
 const bronzeMaterial = new THREE.MeshStandardMaterial({ color: 0x8a5f2a, roughness: 0.45, metalness: 0.7 });
 const plinthMaterial = new THREE.MeshStandardMaterial({ color: 0x2c3039, roughness: 0.9 });
 
-/** Bronze fire bowl on a stone plinth; the main warm light sources of the vault. */
-const buildBrazier = (withLight: boolean, seed: number): { group: THREE.Group; brazier: Brazier } => {
+const boxAt = (w: number, h: number, d: number, x: number, y: number, z: number): THREE.BufferGeometry =>
+  new THREE.BoxGeometry(w, h, d).translate(x, y, z);
+
+/** Bronze fire bowl on a stone plinth, as raw geometry so every brazier merges into one draw. */
+const brazierGeometry = (): { stone: THREE.BufferGeometry[]; bronze: THREE.BufferGeometry[] } => ({
+  stone: [boxAt(0.32, 0.3, 0.32, 0, 0.15, 0)],
+  bronze: [
+    boxAt(0.62, 0.08, 0.62, 0, 0.34, 0),
+    boxAt(0.62, 0.14, 0.06, 0, 0.44, 0.29),
+    boxAt(0.62, 0.14, 0.06, 0, 0.44, -0.29),
+    boxAt(0.06, 0.14, 0.62, 0.29, 0.44, 0),
+    boxAt(0.06, 0.14, 0.62, -0.29, 0.44, 0),
+  ],
+});
+
+const FLAMES: ReadonlyArray<readonly [number, number, number, number]> = [
+  [0.3, 0, 0.58, 0],
+  [0.18, 0.1, 0.72, -0.06],
+  [0.14, -0.09, 0.7, 0.08],
+];
+
+interface Braziers {
+  group: THREE.Group;
+  update(t: number): void;
+}
+
+const buildBraziers = (spots: ReadonlyArray<{ at: THREE.Vector3; light: boolean }>): Braziers => {
   const group = new THREE.Group();
-  const add = (w: number, h: number, d: number, x: number, y: number, z: number, mat: THREE.Material) => {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
-    m.position.set(x, y, z);
-    m.castShadow = true;
-    group.add(m);
-    return m;
+  const stone: THREE.BufferGeometry[] = [];
+  const bronze: THREE.BufferGeometry[] = [];
+  for (const { at } of spots) {
+    const g = brazierGeometry();
+    stone.push(...g.stone.map((x) => x.translate(at.x, at.y, at.z)));
+    bronze.push(...g.bronze.map((x) => x.translate(at.x, at.y, at.z)));
+  }
+  group.add(new THREE.Mesh(mergeGeometries(stone), plinthMaterial), new THREE.Mesh(mergeGeometries(bronze), bronzeMaterial));
+  for (const m of group.children as THREE.Mesh[]) m.receiveShadow = true;
+
+  const flameMaterial = new THREE.MeshStandardMaterial({ color: 0x3d1a04, emissive: 0xffa53a, emissiveIntensity: 3 });
+  const flames = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), flameMaterial, spots.length * FLAMES.length);
+  group.add(flames);
+  const lights = spots.map(({ at, light }) => {
+    if (!light) return null;
+    const l = new THREE.PointLight(0xffa040, 26, 15, 1.6);
+    const inward = new THREE.Vector3(-at.x, 0, -at.z).normalize().multiplyScalar(0.9);
+    l.position.set(at.x + inward.x, at.y + 0.9, at.z + inward.z);
+    group.add(l);
+    return l;
+  });
+  const seeds = spots.map((_, i) => i * 13.7);
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const p = new THREE.Vector3();
+  const sc = new THREE.Vector3();
+  return {
+    group,
+    update(t) {
+      let k = 0;
+      spots.forEach(({ at }, i) => {
+        const seed = seeds[i]!;
+        const f = 0.8 + 0.12 * Math.sin(t * 9.3 + seed) + 0.08 * Math.sin(t * 23.7 + seed * 2.1);
+        const l = lights[i];
+        if (l) l.intensity = 26 * f;
+        FLAMES.forEach(([size, x, y, z], j) => {
+          const h = (size + 0.04) * (0.85 + 0.25 * Math.sin(t * (7 + j * 3.1) + seed + j));
+          p.set(at.x + x, at.y + y - (size + 0.04 - h) / 2, at.z + z);
+          sc.set(size, h, size);
+          flames.setMatrixAt(k++, m.compose(p, q, sc));
+        });
+      });
+      flames.instanceMatrix.needsUpdate = true;
+      flameMaterial.emissiveIntensity = 3 * (0.9 + 0.1 * Math.sin(t * 11));
+    },
   };
-  add(0.32, 0.3, 0.32, 0, 0.15, 0, plinthMaterial);
-  add(0.62, 0.08, 0.62, 0, 0.34, 0, bronzeMaterial);
-  for (const [x, z, w, d] of [
-    [0, 0.29, 0.62, 0.06],
-    [0, -0.29, 0.62, 0.06],
-    [0.29, 0, 0.06, 0.62],
-    [-0.29, 0, 0.06, 0.62],
-  ] as const) {
-    add(w, 0.14, d, x, 0.44, z, bronzeMaterial);
-  }
-  const material = new THREE.MeshStandardMaterial({ color: 0x3d1a04, emissive: 0xffa53a, emissiveIntensity: 3 });
-  const flames = [
-    add(0.3, 0.34, 0.3, 0, 0.58, 0, material),
-    add(0.18, 0.26, 0.18, 0.1, 0.72, -0.06, material),
-    add(0.14, 0.2, 0.14, -0.09, 0.7, 0.08, material),
-  ];
-  for (const f of flames) f.castShadow = false;
-  let light: THREE.PointLight | null = null;
-  if (withLight) {
-    light = new THREE.PointLight(0xffa040, 26, 15, 1.6);
-    light.position.y = 0.9;
-    group.add(light);
-  }
-  return { group, brazier: { flames, material, light, seed } };
 };
 
 export const buildArena = (anisotropy: number): Arena => {
@@ -238,22 +272,15 @@ export const buildArena = (anisotropy: number): Arena => {
       group.add(mesh);
     }
   };
-  instance(walls, true);
+  // Wall blocks sit at the rim, outside the hero's shadow frustum: casting would only cost a pass.
+  instance(walls, false);
   instance(backdrop, false);
 
-  const braziers: Brazier[] = [];
-  const placeBrazier = (at: THREE.Vector3, withLight: boolean) => {
-    const { group: g, brazier } = buildBrazier(withLight, rng() * 100);
-    g.position.copy(at);
-    if (brazier.light) {
-      const inward = new THREE.Vector3(-at.x, 0, -at.z).normalize().multiplyScalar(0.9);
-      brazier.light.position.add(inward);
-    }
-    group.add(g);
-    braziers.push(brazier);
-  };
-  brazierColumns.forEach((p) => placeBrazier(p, true));
-  pillarTops.forEach((p) => placeBrazier(p, false));
+  const braziers = buildBraziers([
+    ...brazierColumns.map((at) => ({ at, light: true })),
+    ...pillarTops.map((at) => ({ at, light: false })),
+  ]);
+  group.add(braziers.group);
 
   const riftMaterial = new THREE.ShaderMaterial({
     uniforms: { uTime: { value: 0 } },
@@ -277,14 +304,7 @@ export const buildArena = (anisotropy: number): Arena => {
     gates,
     update(_dt, t) {
       riftMaterial.uniforms.uTime!.value = t;
-      for (const b of braziers) {
-        const f = 0.8 + 0.12 * Math.sin(t * 9.3 + b.seed) + 0.08 * Math.sin(t * 23.7 + b.seed * 2.1);
-        b.material.emissiveIntensity = 3 * f;
-        b.flames.forEach((m, i) => {
-          m.scale.y = 0.85 + 0.25 * Math.sin(t * (7 + i * 3.1) + b.seed + i);
-        });
-        if (b.light) b.light.intensity = 26 * f;
-      }
+      braziers.update(t);
     },
   };
 };

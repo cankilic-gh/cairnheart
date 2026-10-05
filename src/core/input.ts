@@ -1,14 +1,14 @@
 import type { Ability } from '../combat/attacks';
 import type { MoveIntent } from '../entities/hero/motion';
 
-export type InputAction = Ability | 'mute' | 'restart' | 'pause' | 'pick1' | 'pick2' | 'pick3';
+export type InputAction = Ability | 'mute' | 'restart' | 'pause' | 'stats' | 'pick1' | 'pick2' | 'pick3';
 
 const UP = ['KeyW', 'ArrowUp'];
 const DOWN = ['KeyS', 'ArrowDown'];
 const LEFT = ['KeyA', 'ArrowLeft'];
 const RIGHT = ['KeyD', 'ArrowRight'];
 const RUN = ['ShiftLeft', 'ShiftRight'];
-const CAPTURED = new Set([...UP, ...DOWN, ...LEFT, ...RIGHT, 'Space']);
+const CAPTURED = new Set([...UP, ...DOWN, ...LEFT, ...RIGHT, 'Space', 'F3']);
 
 const KEY_ACTIONS: Record<string, InputAction> = {
   Space: 'attack',
@@ -21,6 +21,8 @@ const KEY_ACTIONS: Record<string, InputAction> = {
   Enter: 'restart',
   Escape: 'pause',
   KeyP: 'pause',
+  F3: 'stats',
+  Backquote: 'stats',
   Digit1: 'pick1',
   Digit2: 'pick2',
   Digit3: 'pick3',

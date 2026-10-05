@@ -20,8 +20,11 @@ export const createPost = (renderer: THREE.WebGLRenderer, scene: THREE.Scene, ca
     composer,
     bloom,
     setSize(w, h) {
-      composer.setPixelRatio(renderer.getPixelRatio());
+      const pr = renderer.getPixelRatio();
+      composer.setPixelRatio(pr);
       composer.setSize(w, h);
+      // Glow is soft by nature: blur at quarter resolution (the pass halves this again internally).
+      bloom.setSize(Math.round((w * pr) / 2), Math.round((h * pr) / 2));
     },
   };
 };
