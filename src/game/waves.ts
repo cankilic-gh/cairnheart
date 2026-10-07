@@ -39,14 +39,17 @@ export interface WaveTemplate {
  * the arrival pattern (pincers force a turn, swarms force the quake or the spin).
  */
 export const WAVE_TEMPLATES: readonly WaveTemplate[] = [
-  { burster: 6, spitter: 0, skitter: 0, elites: 1, pattern: 'trickle' },
-  { burster: 6, spitter: 2, skitter: 0, elites: 1, pattern: 'trickle' },
-  { burster: 5, spitter: 2, skitter: 3, elites: 1, pattern: 'trickle' },
-  { burster: 8, spitter: 2, skitter: 2, elites: 1, pattern: 'pincer' },
-  { burster: 6, spitter: 3, skitter: 4, elites: 1, pattern: 'trickle' },
-  { burster: 9, spitter: 3, skitter: 3, elites: 1, pattern: 'swarm' },
-  { burster: 10, spitter: 4, skitter: 4, elites: 2, pattern: 'pincer' },
+  { burster: 10, spitter: 0, skitter: 0, elites: 1, pattern: 'trickle' },
+  { burster: 10, spitter: 4, skitter: 0, elites: 1, pattern: 'trickle' },
+  { burster: 9, spitter: 3, skitter: 5, elites: 1, pattern: 'trickle' },
+  { burster: 14, spitter: 4, skitter: 4, elites: 1, pattern: 'pincer' },
+  { burster: 12, spitter: 5, skitter: 6, elites: 1, pattern: 'trickle' },
+  { burster: 16, spitter: 5, skitter: 5, elites: 1, pattern: 'swarm' },
+  { burster: 18, spitter: 6, skitter: 7, elites: 2, pattern: 'pincer' },
 ];
+
+/** Seconds between single arrivals: unhurried on wave 1, nearly twice as fast by wave 7. */
+export const spawnInterval = (wave: number): number => 3.2 - Math.min(6, Math.max(0, wave - 1)) * (1.5 / 6);
 
 export const shuffle = <T>(items: T[], rng: Rng): T[] => {
   for (let i = items.length - 1; i > 0; i--) {
@@ -99,7 +102,7 @@ export const planWave = (wave: number, rng: Rng, elites: readonly Family[] = [])
     seq.splice(at, 0, { kind: family, elite: true });
   });
 
-  const interval = Math.max(0.55, 1.45 - wave * 0.09);
+  const interval = spawnInterval(wave);
   const orders: SpawnOrder[] = [];
   let at = 0.6;
   if (t.pattern === 'trickle') {
@@ -139,7 +142,8 @@ export class WaveDirector {
 
   constructor(
     readonly plans: readonly WavePlan[],
-    private readonly intermission = 3.5,
+    /** Breather between waves; long enough to read the next wave's elites. */
+    private readonly intermission = 5,
   ) {}
 
   /** Enemies of the current wave that have not come through a gate yet. */

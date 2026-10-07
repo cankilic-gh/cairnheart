@@ -14,4 +14,8 @@ export default tseslint.config(
       'no-console': ['warn', { allow: ['warn', 'error', 'info'] }],
     },
   },
+  {
+    files: ['tools/**/*.mjs'],
+    languageOptions: { globals: { process: 'readonly', URL: 'readonly' } },
+  },
 );
