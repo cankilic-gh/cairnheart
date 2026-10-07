@@ -142,6 +142,10 @@ export class EnemyManager {
         e.fuse.setPosition(s.pos);
         e.fuse.setRate(1 + s.charge * 0.9);
       }
+      // Gloom flames lick up around the blast edge, faster as the fuse burns down.
+      if (fusing && s.cfg.kind === 'burster' && Math.random() < dt * 30 * (0.3 + s.charge)) {
+        this.ctx.effects.blasts.rim(s.pos.x, s.pos.z, s.cfg.blastRadius, 'gloom');
+      }
       if (!fusing && e.fuse) this.silence(e);
       if (s.mode !== e.lastMode && s.mode === 'crouch') this.ctx.sfx.play('lunge', { at: s.pos });
       e.lastMode = s.mode;
@@ -350,9 +354,9 @@ export class EnemyManager {
         break;
       case 'slam': {
         const { x, z } = ev.at;
-        this.ctx.effects.shockwave(x, z, ev.radius, 0xd08cff, 0.5);
+        this.ctx.effects.blasts.explosion(x, z, ev.radius, 'gloom', { strength: 0.9, y: 0.3 });
         this.ctx.effects.flash(x, 1, z, 40, 0.35, 0xc77dff);
-        for (let i = 0; i < 40; i++) this.shard(x, 0.3, z, 2 + Math.random() * 4, 0.12 + Math.random() * 0.1);
+        for (let i = 0; i < 24; i++) this.shard(x, 0.3, z, 2 + Math.random() * 4, 0.12 + Math.random() * 0.1);
         const d = Math.hypot(this.heroPos.x - x, this.heroPos.z - z);
         this.ctx.cameraRig.kick(Math.max(0.15, 0.55 * (1 - d / 14)));
         this.ctx.sfx.play('slam', { at: ev.at });
@@ -369,7 +373,8 @@ export class EnemyManager {
           s.emerge = EMERGE_TIME * 0.4;
           for (let k = 0; k < 10; k++) this.spark(s.pos.x, 0.6, s.pos.z, 2, VIOLET_SPARKS);
         }
-        this.ctx.effects.shockwave(src.pos.x, src.pos.z, 4, 0xb46bff, 0.6);
+        this.ctx.effects.blasts.swirl(src.pos.x, src.pos.z, 4, 'gloom', true, 0.8);
+        this.ctx.effects.blasts.puff(src.pos.x, 0.6, src.pos.z, 'gloom', 1.6);
         this.ctx.sfx.play('summon', { at: src.pos });
         break;
       }
@@ -383,11 +388,9 @@ export class EnemyManager {
       e.view.dispose();
     }
     const { x, z } = c.pos;
-    this.ctx.effects.shockwave(x, z, R, 0xd08cff, 0.5);
-    this.ctx.effects.shockwave(x, z, R * 0.6, 0xffffff, 0.3, 0.6);
-    this.ctx.effects.flash(x, 1.2, z, 60, 0.4, 0xc77dff);
-    for (let i = 0; i < 46; i++) this.shard(x, 0.6 + Math.random() * 0.8, z, 3 + Math.random() * 5, 0.12 + Math.random() * 0.12);
-    for (let i = 0; i < 26; i++) this.spark(x, 0.8, z, 6, VIOLET_SPARKS);
+    this.ctx.effects.blasts.explosion(x, z, R, 'gloom', { strength: c.cfg.elite ? 1.3 : 1 });
+    this.ctx.effects.flash(x, 1.2, z, 32, 0.35, 0xc77dff);
+    for (let i = 0; i < 26; i++) this.shard(x, 0.6 + Math.random() * 0.8, z, 3 + Math.random() * 5, 0.12 + Math.random() * 0.12);
 
     const dh = Math.hypot(this.heroPos.x - x, this.heroPos.z - z);
     this.ctx.cameraRig.kick(Math.max(0.12, 0.6 * (1 - dh / 14)));
@@ -416,7 +419,8 @@ export class EnemyManager {
       this.shard(c.pos.x, Math.random() * h, c.pos.z, (big ? 3 : 1.5) + Math.random() * 3, (big ? 0.16 : 0.1) + Math.random() * 0.1);
     }
     for (let i = 0; i < (big ? 60 : 12); i++) this.spark(c.pos.x, h * 0.6, c.pos.z, big ? 6 : 2.5, VIOLET_SPARKS);
-    this.ctx.effects.shockwave(c.pos.x, c.pos.z, big ? 7 : c.cfg.elite ? 2.2 : 1.4, 0xb46bff, big ? 0.8 : 0.3);
+    if (big) this.ctx.effects.blasts.explosion(c.pos.x, c.pos.z, 6, 'gloom', { strength: 1.6, y: 1.5 });
+    else this.ctx.effects.blasts.puff(c.pos.x, h * 0.4, c.pos.z, 'gloom', c.cfg.elite ? 1.4 : 0.8);
     if (big) {
       this.ctx.effects.flash(c.pos.x, 2, c.pos.z, 80, 0.8, 0xc77dff);
       this.ctx.cameraRig.kick(0.6);

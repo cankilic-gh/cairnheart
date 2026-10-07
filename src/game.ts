@@ -328,6 +328,7 @@ export class Game {
   setHeadless(on: boolean): void {
     this.headless = on;
     this.hud.enabled = !on;
+    this.effects.blasts.enabled = !on;
     if (on) {
       this.setMenuPaused(false);
       return;
@@ -909,20 +910,18 @@ export class Game {
         if (ev.id === 'slam') {
           this.slamFx(cx, cz, r, spec.shake);
         } else if (ev.id === 'spin') {
-          this.effects.shockwave(pos.x, pos.z, r, 0xffa83a, 0.28, 1.1);
-          for (let i = 0; i < 6; i++) this.spawnEmber(pos.x, 1.1, pos.z, 5);
+          this.effects.blasts.swirl(pos.x, pos.z, shape.radius, 'ember', false, 0.6);
         } else if (ev.id === 'quake') {
-          this.effects.shockwave(pos.x, pos.z, shape.radius, 0xffc070, 0.7, 0.3);
-          this.effects.shockwave(pos.x, pos.z, shape.radius * 0.66, 0xffffff, 0.5, 1.2);
-          for (let i = 0; i < 40; i++) this.spawnDust(pos.x, pos.z, 1.5, 1, 2.5);
+          this.effects.blasts.groundWave(pos.x, pos.z, shape.radius, 'stone', 1.4);
+          this.effects.blasts.groundWave(pos.x, pos.z, shape.radius * 0.7, 'ember', 0.6);
+          this.effects.flash(pos.x, 0.8, pos.z, 30, 0.35);
+          for (let i = 0; i < 24; i++) this.spawnDust(pos.x, pos.z, 1.5, 1, 2.5);
           this.cameraRig.kick(spec.shake);
           this.input.rumble(0.8, 0.5, 220);
         } else {
           // Burster Heart nova.
-          this.effects.shockwave(pos.x, pos.z, r, tint, 0.5, 1.2);
-          this.effects.shockwave(pos.x, pos.z, r * 0.6, 0xffffff, 0.35, 1.3);
+          this.effects.blasts.explosion(pos.x, pos.z, shape.radius, 'heart', { strength: 1.2, y: HEART_Y - 0.4 });
           this.effects.flash(pos.x, HEART_Y, pos.z, 50, 0.4, tint);
-          this.burstEmbers(30);
           this.cameraRig.kick(spec.shake);
           this.sfx.play('beamBlast', { pitch: 1.3 });
         }
@@ -934,9 +933,9 @@ export class Game {
   }
 
   private slamFx(cx: number, cz: number, r: number, shake: number): void {
-    this.effects.shockwave(cx, cz, r, 0xffc070, 0.45);
+    this.effects.blasts.groundWave(cx, cz, r, 'stone');
     this.effects.flash(cx, 0.6, cz, 25, 0.25);
-    for (let i = 0; i < 30; i++) this.spawnDust(cx, cz, 0.8, 1, 2.2);
+    for (let i = 0; i < 16; i++) this.spawnDust(cx, cz, 0.8, 1, 2.2);
     this.cameraRig.kick(shake);
     this.sfx.play('slam', { at: { x: cx, z: cz }, volume: 0.85 });
     this.input.rumble(0.6, 0.4, 140);
@@ -980,7 +979,8 @@ export class Game {
           ev.yaw,
           pos,
         );
-        if (!this.headless) this.effects.shockwave(pos.x, pos.z, b.radius, last ? 0xffc070 : 0xb46bff, last ? 0.4 : 0.22, 0.4);
+        if (last) this.effects.blasts.groundWave(pos.x, pos.z, b.radius, 'ember', 0.7);
+        else this.effects.blasts.swirl(pos.x, pos.z, b.radius, 'gloom', true, 0.5);
         break;
       }
       case 'lunge':
@@ -994,9 +994,8 @@ export class Game {
     this.enemies.applyAttack(circle(radius, damage, 7, 0.3), 0, at);
     if (this.headless) return;
     const color = FAMILY_COLOR.burster;
-    this.effects.shockwave(at.x, at.z, radius + 0.4, color, 0.4, 0.6);
+    this.effects.blasts.explosion(at.x, at.z, radius, 'heart', { strength: 0.7, y: 0.7 });
     this.effects.flash(at.x, 1, at.z, 30, 0.25, color);
-    for (let i = 0; i < 10; i++) this.spawnEmber(at.x, 0.8, at.z, 2);
     this.sfx.play('explode', { at, volume: 0.5, pitch: 1.35 });
     this.cameraRig.kick(0.12);
   }
@@ -1049,9 +1048,9 @@ export class Game {
     const pos = { ...this.motion.pos };
     this.enemies.applyAttack(circle(SPITE.radius, SPITE.damage, SPITE.knockback, SPITE.stun), this.motion.yaw, pos);
     if (this.headless) return;
-    this.effects.shockwave(pos.x, pos.z, SPITE.radius + 0.4, 0xffc070, 0.35, 1.1);
+    this.effects.blasts.groundWave(pos.x, pos.z, SPITE.radius, 'ember', 0.9);
+    this.effects.blasts.puff(pos.x, HEART_Y - 0.3, pos.z, 'ember', 0.8);
     this.effects.flash(pos.x, HEART_Y, pos.z, 35, 0.25);
-    this.burstEmbers(16);
     this.sfx.play('hitHeavy', { pitch: 0.8 });
   }
 
@@ -1205,5 +1204,6 @@ export class Game {
     this.post.setSize(w, h);
     const scale = pointScale(this.camera, h * this.renderer.getPixelRatio());
     for (const field of [this.dust, this.embers, this.motes]) field.setScale(scale);
+    this.effects.setPointScale(scale);
   }
 }

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { buildAtlasModel, type AtlasModel, type FacePainter, type PartSpec } from '../../render/atlasModel';
-import { TELEGRAPH_ORDER } from '../../fx/effects';
+import { TELEGRAPH_ORDER, WARN_DISC_GEO, WARN_LANE_GEO, WARN_LANE_TEX, WARN_RING_TEX, warnMaterial } from '../../fx/warnings';
 import { applyFlash, createFlash, type FlashUniforms } from '../../render/flash';
 import { GLOOM, paintEye, paintGloomCrystal, paintHide } from '../../render/gloomPaint';
 import { EMERGE_TIME } from './brain';
@@ -17,10 +17,7 @@ const ELITE_TINT: Partial<Record<EnemyKind, { color: number; emissive: number }>
   skitter: { color: 0xd8ffb3, emissive: 0xb8ff8f },
 };
 const RING_GEO = new THREE.RingGeometry(0.78, 1, 40);
-const WARN_RING_GEO = new THREE.RingGeometry(0.92, 1, 48);
-/** A lane on the floor along +z, for aim and lunge warnings. */
-const LANE_GEO = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2).translate(0, 0, 0.5);
-const WARN_COLOR = 0xff4fd8;
+
 
 const hide =
   (lift = 0, flecks = 0.02): FacePainter =>
@@ -183,9 +180,8 @@ export class EnemyView {
     this.group.add(this.root);
     this.rig = this.build();
     if (kind !== 'matriarch') {
-      this.warnMat = new THREE.MeshBasicMaterial({ color: WARN_COLOR, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide });
-      this.warn = new THREE.Mesh(kind === 'burster' ? WARN_RING_GEO : LANE_GEO, this.warnMat);
-      if (kind === 'burster') this.warn.rotation.x = -Math.PI / 2;
+      this.warnMat = warnMaterial(kind === 'burster' ? WARN_RING_TEX : WARN_LANE_TEX, 0);
+      this.warn = new THREE.Mesh(kind === 'burster' ? WARN_DISC_GEO : WARN_LANE_GEO, this.warnMat);
       this.warn.position.y = 0.06;
       this.warn.renderOrder = TELEGRAPH_ORDER;
       this.warn.visible = false;

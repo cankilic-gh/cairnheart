@@ -16,17 +16,25 @@ void main() {
 }`;
 
 const FRAG = /* glsl */ `
+uniform float uSoft;
 varying vec3 vColor;
 varying float vAlpha;
 void main() {
   if (vAlpha <= 0.003) discard;
-  gl_FragColor = vec4(vColor, vAlpha);
+  float mask = 1.0;
+  if (uSoft > 0.5) {
+    // 8x8 pixel blob: a quantised radial falloff keeps the pixel-art edge but loses the hard square.
+    vec2 q = (floor(gl_PointCoord * 8.0) + 0.5) / 4.0 - 1.0;
+    mask = clamp(1.3 - length(q) * 1.15, 0.0, 1.0);
+    if (mask <= 0.02) discard;
+  }
+  gl_FragColor = vec4(vColor, vAlpha * mask);
 }`;
 
-/** Square voxel-style point sprites with per-particle colour, size and alpha. */
-const createPointsMaterial = (blending: THREE.Blending): THREE.ShaderMaterial =>
+/** Voxel-style point sprites with per-particle colour, size and alpha: hard squares, or soft pixel blobs. */
+const createPointsMaterial = (blending: THREE.Blending, soft: boolean): THREE.ShaderMaterial =>
   new THREE.ShaderMaterial({
-    uniforms: { uScale: { value: 500 } },
+    uniforms: { uScale: { value: 500 }, uSoft: { value: soft ? 1 : 0 } },
     vertexShader: VERT,
     fragmentShader: FRAG,
     transparent: true,
@@ -48,6 +56,7 @@ abstract class PointField {
   constructor(
     protected readonly capacity: number,
     blending: THREE.Blending,
+    soft = false,
   ) {
     this.pos = new Float32Array(capacity * 3);
     this.col = new Float32Array(capacity * 3);
@@ -58,7 +67,7 @@ abstract class PointField {
     geo.setAttribute('aColor', new THREE.BufferAttribute(this.col, 3).setUsage(THREE.DynamicDrawUsage));
     geo.setAttribute('aSize', new THREE.BufferAttribute(this.size, 1).setUsage(THREE.DynamicDrawUsage));
     geo.setAttribute('aAlpha', new THREE.BufferAttribute(this.alpha, 1).setUsage(THREE.DynamicDrawUsage));
-    this.points = new THREE.Points(geo, createPointsMaterial(blending));
+    this.points = new THREE.Points(geo, createPointsMaterial(blending, soft));
     this.points.frustumCulled = false;
   }
 
@@ -85,7 +94,11 @@ export interface SpawnOptions {
   life: number;
   size: number;
   color: THREE.Color;
+  /** Colour at the end of life; the particle fades from `color` toward it (fire cooling, smoke darkening). */
+  colorEnd?: THREE.Color;
   alpha?: number;
+  /** Fades as remaining-life^fade from the first frame (fire, smoke); default holds full alpha, then fades late. */
+  fade?: number;
   gravity?: number;
   drag?: number;
   grow?: number;
@@ -100,10 +113,16 @@ export class ParticlePool extends PointField {
   private readonly gravity: Float32Array;
   private readonly drag: Float32Array;
   private readonly grow: Float32Array;
+  private readonly col0: Float32Array;
+  private readonly col1: Float32Array;
+  private readonly fade: Float32Array;
   private cursor = 0;
 
-  constructor(capacity: number, blending: THREE.Blending) {
-    super(capacity, blending);
+  constructor(capacity: number, blending: THREE.Blending, soft = false) {
+    super(capacity, blending, soft);
+    this.fade = new Float32Array(capacity);
+    this.col0 = new Float32Array(capacity * 3);
+    this.col1 = new Float32Array(capacity * 3);
     this.vel = new Float32Array(capacity * 3);
     this.life = new Float32Array(capacity);
     this.maxLife = new Float32Array(capacity);
@@ -118,7 +137,10 @@ export class ParticlePool extends PointField {
     this.cursor = (this.cursor + 1) % this.capacity;
     this.pos.set([o.x, o.y, o.z], i * 3);
     this.vel.set([o.vx, o.vy, o.vz], i * 3);
+    const end = o.colorEnd ?? o.color;
     this.col.set([o.color.r, o.color.g, o.color.b], i * 3);
+    this.col0.set([o.color.r, o.color.g, o.color.b], i * 3);
+    this.col1.set([end.r, end.g, end.b], i * 3);
     this.size[i] = o.size;
     this.life[i] = o.life;
     this.maxLife[i] = o.life;
@@ -127,6 +149,13 @@ export class ParticlePool extends PointField {
     this.gravity[i] = o.gravity ?? 0;
     this.drag[i] = o.drag ?? 0;
     this.grow[i] = o.grow ?? 0;
+    this.fade[i] = o.fade ?? 0;
+  }
+
+  clear(): void {
+    this.life.fill(0);
+    this.alpha.fill(0);
+    this.flush();
   }
 
   update(dt: number): void {
@@ -151,9 +180,15 @@ export class ParticlePool extends PointField {
         this.pos[j + 1] = 0.03;
         this.vel[j + 1] = Math.abs(this.vel[j + 1]!) * 0.2;
       }
-      this.size[i] = this.size[i]! + this.grow[i]! * dt;
+      this.size[i] = Math.max(0, this.size[i]! + this.grow[i]! * dt);
       const t = life / this.maxLife[i]!;
-      this.alpha[i] = this.baseAlpha[i]! * Math.min(1, t * 2.5);
+      const fade = this.fade[i]!;
+      this.alpha[i] = this.baseAlpha[i]! * (fade > 0 ? t ** fade : Math.min(1, t * 2.5));
+      // Ease toward the end colour early, so flames read hot only for a moment.
+      const c = (1 - t) ** 0.7;
+      this.col[j] = this.col0[j]! + (this.col1[j]! - this.col0[j]!) * c;
+      this.col[j + 1] = this.col0[j + 1]! + (this.col1[j + 1]! - this.col0[j + 1]!) * c;
+      this.col[j + 2] = this.col0[j + 2]! + (this.col1[j + 2]! - this.col0[j + 2]!) * c;
     }
     this.flush();
   }
