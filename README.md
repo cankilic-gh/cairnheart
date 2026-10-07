@@ -2,7 +2,7 @@
 
 Wake the stone guardian of the Sunken Vault and hold it for eight waves. Elites drop the stone limbs of their kind; graft them onto the golem and each one changes both its silhouette and how one of its attacks works. A blocky arena brawler for the browser, built with Three.js r186, Vite and TypeScript. Every model, texture and sound is generated in code; there are no art or audio files.
 
-This branch (`grafted`) is the Phase 1 greybox: graft parts are coloured blocks. The live site still runs `v0-prototype`.
+This is the Phase 1 greybox: graft parts are coloured blocks. The pre-graft prototype is tagged `v0-prototype`.
 
 ## Run
 
