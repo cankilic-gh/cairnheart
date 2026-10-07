@@ -40,6 +40,29 @@ const run = (c: HeroCombat, seconds: number) => {
 };
 
 describe('HeroCombat', () => {
+  it('lands the first swipe fast; weight comes from hit-stop and shake, not slow input', () => {
+    expect(ATTACKS.swipeR.hits[0]).toBeLessThanOrEqual(0.15);
+    expect(ATTACKS.swipeR.hitStop).toBeGreaterThan(0);
+    expect(ATTACKS.slam.hitStop).toBeGreaterThan(ATTACKS.swipeR.hitStop);
+  });
+
+  it('uses grafted timing when specs change', () => {
+    const c = new HeroCombat();
+    c.specs = { ...ATTACKS, beam: { ...ATTACKS.beam, duration: 0.9, hits: [0.38] } };
+    c.request('beam', 0);
+    const events = run(c, 0.92);
+    expect(events).toHaveLength(1);
+    expect(c.action).toBeNull();
+  });
+
+  it('cancel keeps cooldowns', () => {
+    const c = new HeroCombat();
+    c.request('quake', 0);
+    c.cancel();
+    expect(c.action).toBeNull();
+    expect(c.ready('quake')).toBe(false);
+  });
+
   it('fires each hit exactly once', () => {
     const c = new HeroCombat();
     c.request('attack', 0);

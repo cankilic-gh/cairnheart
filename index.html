@@ -34,6 +34,10 @@
     <section class="hud-wave" aria-live="polite">
       <div id="wave" class="hud-wave-title">GET READY</div>
       <div class="hud-wave-info"><span id="remaining">0</span> left &middot; <span id="score">0</span> pts</div>
+      <div id="preview" class="preview" hidden>
+        <span id="preview-label" class="preview-label">Next</span>
+        <div id="preview-elites" class="preview-elites"></div>
+      </div>
       <div id="boss" class="boss" hidden>
         <div class="boss-name">Gloom Matriarch</div>
         <div class="boss-bar">
@@ -65,6 +69,7 @@
     </div>
 
     <section class="hud-health" aria-label="Health">
+      <div id="loadout" class="loadout" aria-label="Grafts and runes"></div>
       <div class="hud-health-label"><span>HEART</span><span id="hp-text">300 / 300</span></div>
       <div class="hp-bar">
         <div id="hp-trail" class="hp-trail"></div>
@@ -77,6 +82,7 @@
         <li><span class="keycap-row"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span> Move</li>
         <li><kbd class="wide">Shift</kbd> Run</li>
         <li><kbd class="wide">Mouse</kbd> Aim</li>
+        <li><kbd class="wide">Pad</kbd> Stick, X Y B RB</li>
         <li><kbd class="wide">Esc</kbd> Pause</li>
         <li><kbd class="wide">F3</kbd> Stats</li>
         <li><kbd>M</kbd> Sound</li>
@@ -86,16 +92,16 @@
 
     <nav class="abilities" aria-label="Abilities">
       <button class="ability ability-quake" type="button" data-ability="quake" style="--cd: 0">
-        <span class="ability-name">Quake</span><kbd>R</kbd>
+        <span class="ability-name">Quake</span><kbd class="key">R</kbd><kbd class="pad">RB</kbd>
       </button>
       <button class="ability ability-spin" type="button" data-ability="spin" style="--cd: 0">
-        <span class="ability-name">Spin</span><kbd>L</kbd>
+        <span class="ability-name">Spin</span><kbd class="key">L</kbd><kbd class="pad">B</kbd>
       </button>
       <button class="ability ability-beam" type="button" data-ability="beam" style="--cd: 0">
-        <span class="ability-name">Beam</span><kbd>K</kbd>
+        <span class="ability-name">Beam</span><kbd class="key">K</kbd><kbd class="pad">Y</kbd>
       </button>
       <button class="ability ability-attack" type="button" data-ability="attack" style="--cd: 0">
-        <span class="ability-name">Swipe</span><kbd>J</kbd>
+        <span class="ability-name">Swipe</span><kbd class="key">J</kbd><kbd class="pad">X</kbd>
       </button>
     </nav>
 
@@ -104,20 +110,26 @@
       <p id="banner-sub"></p>
     </div>
 
-    <section id="upgrade" class="modal" hidden aria-labelledby="upgrade-title">
-      <div class="modal-card upgrade-card">
-        <h2 id="upgrade-title">Wave cleared</h2>
-        <p class="modal-sub">Choose a blessing</p>
-        <div id="upgrade-options" class="upgrade-options"></div>
+    <section id="offer" class="modal" hidden aria-labelledby="offer-title">
+      <div class="modal-card offer-modal">
+        <h2 id="offer-title">Elite relic</h2>
+        <p id="offer-sub" class="modal-sub">Graft a part, or take a rune</p>
+        <div id="offer-options" class="offer-options"></div>
+        <div class="modal-actions">
+          <button id="offer-reroll" class="hud-btn" type="button">REROLL <span id="offer-rerolls"></span><kbd class="key">F</kbd><kbd class="pad">Y</kbd></button>
+          <button id="offer-skip" class="hud-btn" type="button">LEAVE IT<kbd class="key">X</kbd><kbd class="pad">B</kbd></button>
+        </div>
       </div>
     </section>
 
     <section id="paused" class="modal" hidden aria-labelledby="paused-title">
       <div class="modal-card">
         <h2 id="paused-title">Paused</h2>
+        <p id="paused-seed" class="modal-sub"></p>
         <div class="modal-actions">
           <button id="resume" class="hud-btn" type="button">RESUME</button>
-          <button id="pause-restart" class="hud-btn" type="button">RESTART</button>
+          <button id="pause-restart" class="hud-btn" type="button">NEW RUN</button>
+          <button id="pause-export" class="hud-btn" type="button">EXPORT LOG</button>
         </div>
         <p class="modal-hint">Esc to resume</p>
       </div>
@@ -126,10 +138,29 @@
     <section id="gameover" class="modal" hidden aria-labelledby="gameover-title">
       <div class="modal-card gameover-card">
         <h2 id="gameover-title">The Heart Goes Dark</h2>
+        <p id="gameover-cause" class="gameover-cause"></p>
         <p id="gameover-stats"></p>
         <p id="gameover-best" class="gameover-best"></p>
-        <button id="restart" class="hud-btn gameover-btn" type="button">PLAY AGAIN</button>
-        <p class="modal-hint">or press Enter</p>
+        <div class="modal-actions">
+          <button id="retry" class="hud-btn gameover-btn" type="button">RETRY SEED</button>
+          <button id="new-run" class="hud-btn" type="button">NEW RUN</button>
+          <button id="gameover-export" class="hud-btn" type="button">EXPORT LOG</button>
+        </div>
+        <p class="modal-hint"><span class="hint-key">Enter</span> retries the same seed · <span class="hint-key">N</span> new run</p>
+      </div>
+    </section>
+
+    <section id="victory" class="modal" hidden aria-labelledby="victory-title">
+      <div class="modal-card victory-card">
+        <h2 id="victory-title">The Vault Holds</h2>
+        <p id="victory-stats"></p>
+        <div id="victory-build" class="victory-build"></div>
+        <p id="victory-best" class="gameover-best"></p>
+        <div class="modal-actions">
+          <button id="victory-new" class="hud-btn gameover-btn" type="button">NEW RUN</button>
+          <button id="victory-retry" class="hud-btn" type="button">RETRY SEED</button>
+          <button id="victory-export" class="hud-btn" type="button">EXPORT LOG</button>
+        </div>
       </div>
     </section>
 

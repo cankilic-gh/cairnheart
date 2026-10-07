@@ -12,7 +12,8 @@ import type {
 
 export const EMERGE_TIME = 0.9;
 
-export const configFor = (kind: EnemyKind, elite = false, speedScale = 1, bossLevel = 0): EnemyConfig => {
+/** Elites differ by pattern (bigger blast, three-shot fan, double lunge), not just by health. */
+export const configFor = (kind: EnemyKind, elite = false, speedScale = 1): EnemyConfig => {
   switch (kind) {
     case 'burster':
       return elite
@@ -54,46 +55,50 @@ export const configFor = (kind: EnemyKind, elite = false, speedScale = 1, bossLe
       return {
         kind,
         elite,
-        maxHp: 45,
+        maxHp: elite ? 110 : 45,
         speed: 2.3 * speedScale,
-        radius: 0.4,
-        scale: 1,
-        knockResist: 1,
+        radius: elite ? 0.55 : 0.4,
+        scale: elite ? 1.35 : 1,
+        knockResist: elite ? 1.8 : 1,
         stunResist: 1,
-        score: 15,
-        height: 1.55,
+        score: elite ? 35 : 15,
+        height: elite ? 2.1 : 1.55,
         preferMin: 5.5,
         preferMax: 9,
-        aimTime: 0.6,
-        cooldown: 2.6,
+        aimTime: elite ? 0.75 : 0.6,
+        cooldown: elite ? 2.9 : 2.6,
         shotSpeed: 9,
         shotDamage: 16,
+        fan: elite ? 3 : 1,
+        fanSpread: elite ? 0.5 : 0,
       };
     case 'skitter':
       return {
         kind,
         elite,
-        maxHp: 36,
+        maxHp: elite ? 90 : 36,
         speed: 4 * speedScale,
-        radius: 0.42,
-        scale: 1,
-        knockResist: 0.9,
+        radius: elite ? 0.55 : 0.42,
+        scale: elite ? 1.35 : 1,
+        knockResist: elite ? 1.6 : 0.9,
         stunResist: 1,
-        score: 12,
-        height: 0.8,
+        score: elite ? 35 : 12,
+        height: elite ? 1.1 : 0.8,
         lungeRange: 4.6,
         crouchTime: 0.45,
         lungeTime: 0.38,
         lungeSpeed: 11,
-        biteDamage: 14,
+        biteDamage: elite ? 18 : 14,
         recoverTime: 0.7,
-        cooldown: 1.2,
+        cooldown: elite ? 1.6 : 1.2,
+        lunges: elite ? 2 : 1,
+        relunge: 0.3,
       };
     case 'matriarch':
       return {
         kind,
         elite: true,
-        maxHp: 2200 + 900 * bossLevel,
+        maxHp: 2200,
         speed: 1.35 * speedScale,
         radius: 1.7,
         scale: 1.25,
@@ -142,6 +147,8 @@ export const createEnemy = (id: number, cfg: EnemyConfig, pos: Vec2, inward: Vec
   strafeT: 1.5,
   hitDone: false,
   pattern: 0,
+  chain: 0,
+  marked: 0,
 });
 
 const setMode = (e: EnemyState, mode: EnemyState['mode']): void => {
@@ -216,14 +223,21 @@ const spitter: Brain<SpitterConfig> = (e, cfg, f) => {
   e.charge = Math.min(1, e.modeT / cfg.aimTime);
   if (e.modeT < cfg.aimTime * 0.7) e.aim = { x: f.nx, z: f.nz };
   if (crossed(f.prevT, e.modeT, cfg.aimTime)) {
-    f.events.push({
-      type: 'shoot',
-      from: { x: e.pos.x + e.aim.x * 0.5, z: e.pos.z + e.aim.z * 0.5 },
-      dir: { ...e.aim },
-      speed: cfg.shotSpeed,
-      damage: cfg.shotDamage,
-      y: 1.15 * cfg.scale,
-    });
+    const base = Math.atan2(e.aim.x, e.aim.z);
+    for (let i = 0; i < cfg.fan; i++) {
+      const a = base + (cfg.fan > 1 ? (i / (cfg.fan - 1) - 0.5) * cfg.fanSpread : 0);
+      const dir = { x: Math.sin(a), z: Math.cos(a) };
+      f.events.push({
+        type: 'shoot',
+        source: e,
+        from: { x: e.pos.x + dir.x * 0.5, z: e.pos.z + dir.z * 0.5 },
+        dir,
+        speed: cfg.shotSpeed,
+        damage: cfg.shotDamage,
+        y: 1.15 * cfg.scale,
+        volley: i === 0 ? undefined : 'silent',
+      });
+    }
     setMode(e, 'move');
     e.cooldown = cfg.cooldown;
   }
@@ -241,26 +255,32 @@ const skitter: Brain<SkitterConfig> = (e, cfg, f) => {
       if (f.stunned) return { x: 0, z: 0 };
       if (e.cooldown <= 0 && f.dist <= cfg.lungeRange) {
         setMode(e, 'crouch');
+        e.chain = 0;
         e.aim = { x: f.nx, z: f.nz };
         return { x: 0, z: 0 };
       }
       return toward(f, cfg.speed);
-    case 'crouch':
+    case 'crouch': {
+      const crouch = e.chain > 0 ? cfg.relunge : cfg.crouchTime;
       e.aim = { x: f.nx, z: f.nz };
-      e.charge = Math.min(1, e.modeT / cfg.crouchTime);
-      if (e.modeT >= cfg.crouchTime) {
+      e.charge = Math.min(1, e.modeT / crouch);
+      if (e.modeT >= crouch) {
         setMode(e, 'lunge');
         e.hitDone = false;
         e.vel = { x: e.aim.x * cfg.lungeSpeed, z: e.aim.z * cfg.lungeSpeed };
       }
       return { x: 0, z: 0 };
+    }
     case 'lunge':
       e.charge = 1;
       if (!e.hitDone && f.dist <= cfg.radius + f.targetRadius + 0.25) {
         e.hitDone = true;
         f.events.push({ type: 'bite', source: e, damage: cfg.biteDamage });
       }
-      if (e.modeT >= cfg.lungeTime) setMode(e, 'recover');
+      if (e.modeT >= cfg.lungeTime) {
+        e.chain += 1;
+        setMode(e, e.chain < cfg.lunges ? 'crouch' : 'recover');
+      }
       return null;
     default:
       e.charge = 0;
@@ -280,6 +300,7 @@ const ring = (e: EnemyState, cfg: MatriarchConfig, offset: number, events: Enemy
     const dir = { x: Math.sin(a), z: Math.cos(a) };
     events.push({
       type: 'shoot',
+      source: e,
       from: { x: e.pos.x + dir.x * cfg.radius, z: e.pos.z + dir.z * cfg.radius },
       dir,
       speed: cfg.novaSpeed,
@@ -346,12 +367,32 @@ const matriarch: Brain<MatriarchConfig> = (e, cfg, f) => {
 };
 
 const FACES_AIM = new Set<EnemyState['mode']>(['aim', 'crouch', 'lunge', 'slam']);
+const WINDUP_MODES = new Set<EnemyState['mode']>(['fuse', 'aim', 'crouch', 'slam', 'nova', 'summon']);
+
+/** True while the enemy telegraphs an attack; hits landed now are counter-hits. */
+export const windingUp = (e: EnemyState): boolean =>
+  e.phase === 'active' && WINDUP_MODES.has(e.mode) && e.charge > 0 && e.charge < 1;
+
+/** Every number an enemy can hurt the hero with, for the single-hit cap check. */
+export const enemyHitDamages = (c: EnemyConfig): number[] => {
+  switch (c.kind) {
+    case 'burster':
+      return [c.blastDamage];
+    case 'spitter':
+      return [c.shotDamage];
+    case 'skitter':
+      return [c.biteDamage];
+    case 'matriarch':
+      return [c.slamDamage, c.novaDamage];
+  }
+};
 
 /** Advances one enemy and returns what it did this frame. */
 export const stepEnemy = (e: EnemyState, target: Vec2, targetRadius: number, dt: number): EnemyEvent[] => {
   if (e.phase === 'dead' || dt <= 0) return [];
   const events: EnemyEvent[] = [];
   e.hitFlash = Math.max(0, e.hitFlash - dt);
+  e.marked = Math.max(0, e.marked - dt);
   e.stun = Math.max(0, e.stun - dt);
   e.cooldown = Math.max(0, e.cooldown - dt);
   if (e.trailHp > e.hp) e.trailHp = Math.max(e.hp, e.trailHp - e.cfg.maxHp * 0.9 * dt);

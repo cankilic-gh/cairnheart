@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { SLOTS, SLOT_MOUNT, type GraftSlot, type PartRecipe } from '../../game/grafts';
 import { buildAtlasModel, type FacePainter, type PartSpec } from '../../render/atlasModel';
 import type { PixelCanvas } from '../../render/pixelCanvas';
 import {
@@ -39,7 +40,15 @@ export interface HeroRig {
   footR: THREE.Object3D;
   chestLight: THREE.PointLight;
   pulseMaterials: THREE.MeshStandardMaterial[];
+  /** Graft mount points, one per slot. */
+  mounts: Record<GraftSlot, THREE.Group>;
+  /** Replaces whatever hangs on `slot` with `recipe` (null strips it). Returns the new meshes. */
+  setPart(slot: GraftSlot, recipe: PartRecipe | null): THREE.Mesh[];
 }
+
+const PART_GEO = new THREE.BoxGeometry(1, 1, 1);
+/** Graft blocks glow brighter than stone so the new silhouette reads at arena zoom. */
+const PART_GLOW = 1.4;
 
 /** Collects boxes first, then bakes every face into one atlas so the whole hero shares a material. */
 class RigBuilder {
@@ -229,6 +238,44 @@ export const buildHero = (): HeroRig => {
   chestLight.position.set(0, 1, 30);
   torso.add(chestLight);
 
+  const parents = { armL, armR, torso, head };
+  const mounts = {} as Record<GraftSlot, THREE.Group>;
+  for (const slot of SLOTS) {
+    const m = SLOT_MOUNT[slot];
+    const g = new THREE.Group();
+    g.name = `mount-${slot}`;
+    g.position.set(...m.at);
+    parents[m.parent].add(g);
+    mounts[slot] = g;
+  }
+  const pulseMaterials = [b.build()];
+  const partMaterials = new Map<string, THREE.MeshStandardMaterial>();
+  const partMaterial = (color: number, glow: number): THREE.MeshStandardMaterial => {
+    const key = `${color}:${glow}`;
+    let m = partMaterials.get(key);
+    if (!m) {
+      m = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: glow * PART_GLOW, roughness: 0.85, metalness: 0 });
+      m.userData.baseGlow = glow * PART_GLOW;
+      partMaterials.set(key, m);
+      if (glow > 0) pulseMaterials.push(m);
+    }
+    return m;
+  };
+  const setPart = (slot: GraftSlot, recipe: PartRecipe | null): THREE.Mesh[] => {
+    const mount = mounts[slot];
+    mount.clear();
+    if (!recipe) return [];
+    return recipe.boxes.map((box) => {
+      const mesh = new THREE.Mesh(PART_GEO, partMaterial(box.color, box.glow ?? 0));
+      mesh.scale.set(box.x[1] - box.x[0], box.y[1] - box.y[0], box.z[1] - box.z[0]);
+      mesh.position.set((box.x[0] + box.x[1]) / 2, (box.y[0] + box.y[1]) / 2, (box.z[0] + box.z[1]) / 2);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mount.add(mesh);
+      return mesh;
+    });
+  };
+
   return {
     root,
     spinner: rig,
@@ -245,6 +292,8 @@ export const buildHero = (): HeroRig => {
     footL: legL.foot,
     footR: legR.foot,
     chestLight,
-    pulseMaterials: [b.build()],
+    pulseMaterials,
+    mounts,
+    setPart,
   };
 };

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { buildAtlasModel, type AtlasModel, type FacePainter, type PartSpec } from '../../render/atlasModel';
+import { TELEGRAPH_ORDER } from '../../fx/effects';
 import { applyFlash, createFlash, type FlashUniforms } from '../../render/flash';
 import { GLOOM, paintEye, paintGloomCrystal, paintHide } from '../../render/gloomPaint';
 import { EMERGE_TIME } from './brain';
@@ -9,6 +10,17 @@ import type { EnemyKind, EnemyState } from './types';
 const PX = 1 / 16;
 const HURT = new THREE.Color(1, 0.12, 0.1);
 const CHARGE = new THREE.Color(1, 0.92, 1);
+const FUSE_MARK = new THREE.Color(1, 0.45, 0.2);
+const ELITE_TINT: Partial<Record<EnemyKind, { color: number; emissive: number }>> = {
+  burster: { color: 0xffb3e6, emissive: 0xff8fd6 },
+  spitter: { color: 0xb8f0ff, emissive: 0x8fe8ff },
+  skitter: { color: 0xd8ffb3, emissive: 0xb8ff8f },
+};
+const RING_GEO = new THREE.RingGeometry(0.78, 1, 40);
+const WARN_RING_GEO = new THREE.RingGeometry(0.92, 1, 48);
+/** A lane on the floor along +z, for aim and lunge warnings. */
+const LANE_GEO = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2).translate(0, 0, 0.5);
+const WARN_COLOR = 0xff4fd8;
 
 const hide =
   (lift = 0, flecks = 0.02): FacePainter =>
@@ -138,10 +150,16 @@ export class EnemyView {
   private readonly flash: FlashUniforms;
   private readonly rig: Rig;
   private readonly t: AtlasModel;
+  private readonly ring: THREE.Mesh | null = null;
+  /** Floor telegraph: burster blast ring, spitter aim lane or skitter lunge lane. */
+  private readonly warn: THREE.Mesh | null = null;
+  private readonly warnMat: THREE.MeshBasicMaterial | null = null;
 
+  /** `ringColor` marks an elite with its graft family's colour on the floor. */
   constructor(
     private readonly kind: EnemyKind,
     elite: boolean,
+    ringColor: number | null = null,
   ) {
     this.t = template(kind);
     this.material = new THREE.MeshStandardMaterial({
@@ -154,15 +172,34 @@ export class EnemyView {
       transparent: true,
       opacity: 1,
     });
-    if (elite && kind === 'burster') {
-      this.material.color.set(0xffb3e6);
-      this.material.emissive.set(0xff8fd6);
+    const tint = elite ? ELITE_TINT[kind] : undefined;
+    if (tint) {
+      this.material.color.set(tint.color);
+      this.material.emissive.set(tint.emissive);
     }
     this.flash = createFlash();
     applyFlash(this.material, this.flash);
     this.root.scale.setScalar(PX);
     this.group.add(this.root);
     this.rig = this.build();
+    if (kind !== 'matriarch') {
+      this.warnMat = new THREE.MeshBasicMaterial({ color: WARN_COLOR, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide });
+      this.warn = new THREE.Mesh(kind === 'burster' ? WARN_RING_GEO : LANE_GEO, this.warnMat);
+      if (kind === 'burster') this.warn.rotation.x = -Math.PI / 2;
+      this.warn.position.y = 0.06;
+      this.warn.renderOrder = TELEGRAPH_ORDER;
+      this.warn.visible = false;
+      this.group.add(this.warn);
+    }
+    if (ringColor !== null) {
+      this.ring = new THREE.Mesh(
+        RING_GEO,
+        new THREE.MeshBasicMaterial({ color: new THREE.Color(ringColor).multiplyScalar(1.6), transparent: true, opacity: 0.85, depthWrite: false }),
+      );
+      this.ring.rotation.x = -Math.PI / 2;
+      this.ring.position.y = 0.05;
+      this.group.add(this.ring);
+    }
   }
 
   sync(e: EnemyState, time: number): void {
@@ -174,6 +211,11 @@ export class EnemyView {
     this.material.transparent = emerge < 1;
     const s = e.cfg.scale * (0.6 + 0.4 * emerge);
     g.scale.setScalar(s);
+    if (this.ring) {
+      this.ring.scale.setScalar((e.cfg.radius + 0.35) / s);
+      this.ring.rotation.z = time * 1.5;
+    }
+    this.syncWarning(e, s);
 
     const moving = Math.min(1, Math.hypot(e.vel.x, e.vel.z) / 1.2);
     const w = e.walk;
@@ -242,6 +284,9 @@ export class EnemyView {
     if (e.hitFlash > 0) {
       this.flash.uFlashColor.value.copy(HURT);
       this.flash.uFlash.value = 0.6;
+    } else if (e.marked > 0) {
+      this.flash.uFlashColor.value.copy(FUSE_MARK);
+      this.flash.uFlash.value = Math.sin(time * (14 + (1 - e.marked) * 30)) > 0 ? 0.55 : 0.1;
     } else {
       const blinking = this.kind === 'burster' && c > 0;
       const winding = (this.kind === 'spitter' && e.mode === 'aim') || (this.kind === 'skitter' && e.mode === 'crouch');
@@ -251,9 +296,27 @@ export class EnemyView {
     }
   }
 
+  private syncWarning(e: EnemyState, s: number): void {
+    const w = this.warn;
+    const m = this.warnMat;
+    if (!w || !m) return;
+    const cfg = e.cfg;
+    const on =
+      e.phase === 'active' &&
+      ((cfg.kind === 'burster' && e.mode === 'fuse') || (cfg.kind === 'spitter' && e.mode === 'aim') || (cfg.kind === 'skitter' && e.mode === 'crouch'));
+    w.visible = on;
+    if (!on) return;
+    m.opacity = 0.3 + 0.55 * e.charge;
+    if (cfg.kind === 'burster') w.scale.setScalar(cfg.blastRadius / s);
+    else if (cfg.kind === 'spitter') w.scale.set(0.35 / s, 1, cfg.preferMax / s);
+    else if (cfg.kind === 'skitter') w.scale.set(0.7 / s, 1, (cfg.lungeSpeed * cfg.lungeTime) / s);
+  }
+
   dispose(): void {
     this.group.removeFromParent();
     this.material.dispose();
+    this.warnMat?.dispose();
+    (this.ring?.material as THREE.Material | undefined)?.dispose();
   }
 
   private mesh(name: string, parent: THREE.Object3D): THREE.Mesh {

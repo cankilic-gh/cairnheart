@@ -1,38 +1,60 @@
 import * as THREE from 'three';
-import { ABILITIES, ATTACKS, type Ability, type AttackSpec } from './combat/attacks';
+import { ABILITIES, ATTACKS, type Ability, type AttackId, type AttackSpec, type Behavior, type Strike } from './combat/attacks';
 import { HeroCombat, type ActiveAction, type HitEvent } from './combat/heroCombat';
+import type { StrikeResult } from './game/enemyManager';
 import { Sfx } from './audio/engine';
 import { gameAudioMode } from './audio/mix';
 import { CameraRig } from './core/cameraRig';
-import { Input, type InputAction } from './core/input';
+import { Input, type ActionSource, type InputAction } from './core/input';
 import { smoothstep } from './core/math';
 import { GpuTimer, ResolutionGovernor, RollingStats } from './core/perf';
 import { loadBest, saveBest } from './core/storage';
+import { EventLog } from './debug/eventLog';
 import type { EnemyState } from './entities/enemies/types';
 import { HeroAnimator, type FootSide } from './entities/hero/animator';
 import { buildHero, type HeroRig } from './entities/hero/model';
-import { MOTION, cameraBasis, createMotionState, stepMotion, wrapAngle, type MotionConfig, type MoveIntent, type Vec2 } from './entities/hero/motion';
+import { MOTION, cameraBasis, clampToArena, createMotionState, intentToWorld, stepMotion, wrapAngle, type MoveIntent, type Vec2 } from './entities/hero/motion';
 import { Effects } from './fx/effects';
 import { ParticlePool, EmberMotes, pointScale } from './fx/particles';
+import { Relics } from './fx/relics';
 import { EnemyManager, type HeroDamageSource, type ScreenPoint } from './game/enemyManager';
+import {
+  ATTACK_LABEL,
+  FAMILY_COLOR,
+  FAMILY_LABEL,
+  GRAFTS,
+  SLOTS,
+  SLOT_ATTACK,
+  equip,
+  heroHurtRadius,
+  resolveAttacks,
+  type Family,
+  type GraftId,
+  type GraftSlot,
+} from './game/grafts';
+import { HERO_HP, MAX_HIT_FRACTION, RUN_WAVES, newSeed } from './game/run';
+import { RunFlow, type FlowEvent, type Offer } from './game/runFlow';
+import { RUNES, SPITE, type RuneId } from './game/runes';
 import { ScoreKeeper } from './game/score';
-import { UPGRADES, rollUpgrades, statsFor, type HeroStats, type UpgradeId, type UpgradeLevels } from './game/upgrades';
-import { WaveDirector, type WaveEvent } from './game/waves';
 import { applyFlash, createFlash } from './render/flash';
 import { createPost, type Post } from './render/post';
-import { Hud } from './ui/hud';
+import { Hud, type RunSummary } from './ui/hud';
 import { PerfPanel } from './ui/perfPanel';
 import { buildArena, type Arena } from './world/arena';
 import { ARENA } from './world/arenaConfig';
 
-export const HERO_HP = 300;
-const HERO_RADIUS = 1.25;
+/** Keeps enemies off the golem's model; its hurtbox is the smaller `heroHurtRadius`. */
+const HERO_BODY_RADIUS = 1.25;
 const WAVE_HEAL = 0.3;
 const INVULN = 0.3;
 const INTRO_RISE = 1.6;
 const INTRO_END = 2.3;
-const DEATH_TIME = 2.2;
+/** The fall is short so the retry card is up well inside three seconds of dying. */
+const DEATH_TIME = 1.5;
+const VICTORY_CARD = 2.6;
+const VICTORY_BONUS = 1000;
 const RISE_DEPTH = 3.8;
+const RELIC_PICKUP = 1.7;
 const STILL: MoveIntent = { x: 0, y: 0, run: false };
 /** Frame cap: high-refresh displays render every other vsync instead of doubling GPU load. */
 const TARGET_FPS = 60;
@@ -45,7 +67,21 @@ const HEART_FORWARD = 1.05;
 const DUST_COLORS = [0x2d313b, 0x3a3f4a, 0x23262d, 0x4a4f5b].map((c) => new THREE.Color(c));
 const EMBER_COLORS = [0xffb347, 0xffe2a0, 0xe08a2a].map((c) => new THREE.Color(c));
 
-export type GameState = 'intro' | 'playing' | 'upgrade' | 'dying' | 'over';
+const ATTACK_NOUN: Record<HeroDamageSource['attack'], string> = { blast: 'blast', shot: 'shard', bite: 'bite', slam: 'slam' };
+const ENEMY_NAME: Record<HeroDamageSource['enemy'], string> = { burster: 'Burster', spitter: 'Spitter', skitter: 'Skitter', matriarch: 'Gloom Matriarch' };
+
+export type GameState = 'intro' | 'playing' | 'offer' | 'dying' | 'over' | 'victory';
+
+const isAbility = (a: string): a is Ability => (ABILITIES as readonly string[]).includes(a);
+
+const circle = (radius: number, damage: number, knockback: number, stun: number, behaviors: readonly Behavior[] = []): Strike => ({
+  damage,
+  shape: { kind: 'circle', radius, forward: 0 },
+  knockback,
+  stun,
+  interrupts: false,
+  behaviors,
+});
 
 export class Game {
   readonly renderer: THREE.WebGLRenderer;
@@ -58,25 +94,27 @@ export class Game {
   readonly input: Input;
   readonly arena: Arena;
   readonly combat = new HeroCombat();
-  readonly waves = new WaveDirector(Math.random);
   readonly enemies: EnemyManager;
   readonly hud = new Hud();
   readonly score = new ScoreKeeper();
+  readonly log: EventLog;
 
-  state: GameState = 'intro';
+  flow!: RunFlow;
+  attacks: Record<AttackId, AttackSpec> = { ...ATTACKS };
   /** Player-facing pause menu. */
   menuPaused = false;
   /** Test hook: stops the RAF loop from advancing so manual ticks can be inspected. */
   frozen = false;
+  /** Test hook: simulate without rendering, audio or HUD (the balance bot). */
+  headless = false;
   hp = HERO_HP;
-  kills = 0;
   best = loadBest();
-  levels: UpgradeLevels = {};
-  stats: HeroStats = statsFor({}, HERO_HP);
+  deathCause = '';
 
   private readonly post: Post;
   private readonly sfx = new Sfx();
   private readonly effects: Effects;
+  private readonly relics: Relics;
   private readonly moon: THREE.DirectionalLight;
   private readonly dust = new ParticlePool(1600, THREE.NormalBlending);
   private readonly embers = new ParticlePool(1400, THREE.AdditiveBlending);
@@ -87,14 +125,17 @@ export class Game {
   private readonly tmp = new THREE.Vector3();
   private readonly ndc = new THREE.Vector2();
   private readonly tmp2 = new THREE.Vector2();
-  private motionCfg: MotionConfig = MOTION;
-  private offered: UpgradeId[] = [];
+  private readonly parts = new Map<GraftSlot, string | null>();
+  private scheduled: Array<{ t: number; run: () => void }> = [];
   private elapsed = 0;
   private introTime = 0;
   private stateTime = 0;
   private roared = false;
   private hitStop = 0;
   private invuln = 0;
+  private spiteCooldown = 0;
+  private endShown = false;
+  private lastOfferId = 0;
   private lastFrame = 0;
   private readonly frameStats = new RollingStats(180);
   private readonly cpuStats = new RollingStats(180);
@@ -105,7 +146,7 @@ export class Game {
 
   constructor(
     private readonly container: HTMLElement,
-    hudRefs: { joyBase: HTMLElement; joyKnob: HTMLElement; showStats: boolean },
+    hudRefs: { joyBase: HTMLElement; joyKnob: HTMLElement; showStats: boolean; seed: number | null },
   ) {
     const coarse = window.matchMedia('(pointer: coarse)').matches;
     // The composer renders into its own targets, so canvas MSAA would only cost bandwidth.
@@ -156,6 +197,7 @@ export class Game {
 
     this.scene.add(this.dust.points, this.embers.points, this.motes.points);
     this.effects = new Effects(this.scene);
+    this.relics = new Relics(this.scene);
 
     this.cameraRig = new CameraRig(this.camera);
     this.cameraRig.snap(new THREE.Vector3());
@@ -174,40 +216,72 @@ export class Game {
       onKill: (e) => this.onKill(e),
     });
 
+    this.log = new EventLog(() => this.flow?.run.time ?? 0);
     this.combat.onStart = (a) => this.onActionStart(a);
     this.input = new Input(this.renderer.domElement, hudRefs.joyBase, hudRefs.joyKnob);
-    this.input.onAction = (a, fromMouse) => this.action(a, fromMouse);
+    this.input.onAction = (a, src) => this.action(a, src);
     this.input.onZoom = (dy) => this.cameraRig.zoomBy(dy);
     this.input.onFirstGesture = () => this.sfx.unlock();
+    this.input.onInput = (device) => this.log.input(device);
+    this.input.onDevice = (device) => {
+      document.documentElement.dataset.input = device;
+    };
     const click = (fn: () => void) => () => {
       this.sfx.unlock();
       this.sfx.play('ui');
       fn();
     };
-    this.hud.mute.addEventListener('click', click(() => this.action('mute', false)));
-    this.hud.stats.addEventListener('click', click(() => this.action('stats', false)));
-    this.hud.pause.addEventListener('click', click(() => this.action('pause', false)));
+    const exportLog = click(() => this.log.download());
+    this.hud.mute.addEventListener('click', click(() => this.action('mute', { device: 'mouse', cursor: false })));
+    this.hud.stats.addEventListener('click', click(() => this.action('stats', { device: 'mouse', cursor: false })));
+    this.hud.pause.addEventListener('click', click(() => this.action('pause', { device: 'mouse', cursor: false })));
     this.hud.resume.addEventListener('click', click(() => this.setMenuPaused(false)));
-    this.hud.pauseRestart.addEventListener('click', click(() => this.restart()));
-    this.hud.restart.addEventListener('click', click(() => this.action('restart', false)));
+    this.hud.pauseRestart.addEventListener('click', click(() => this.newRun()));
+    this.hud.pauseExport.addEventListener('click', exportLog);
+    this.hud.retry.addEventListener('click', click(() => this.retry()));
+    this.hud.newRun.addEventListener('click', click(() => this.newRun()));
+    this.hud.gameOverExport.addEventListener('click', exportLog);
+    this.hud.victoryNew.addEventListener('click', click(() => this.newRun()));
+    this.hud.victoryRetry.addEventListener('click', click(() => this.retry()));
+    this.hud.victoryExport.addEventListener('click', exportLog);
     for (const [ability, btn] of this.hud.abilityButtons) {
       btn.addEventListener('pointerdown', (e) => {
         e.stopPropagation();
         e.preventDefault();
         this.sfx.unlock();
-        this.action(ability, false);
+        this.input.tap(ability, e.pointerType === 'mouse' ? 'mouse' : 'touch');
       });
     }
     document.addEventListener('visibilitychange', () => {
+      if (this.headless) return;
       if (document.hidden) this.setMenuPaused(true);
       this.sfx.setHidden(document.hidden);
     });
-    window.addEventListener('blur', () => this.setMenuPaused(true));
+    window.addEventListener('blur', () => {
+      if (!this.headless) this.setMenuPaused(true);
+    });
 
-    this.hud.setHealth(this.hp, this.stats.maxHp);
-    this.hud.setWave(0);
     window.addEventListener('resize', () => this.resize());
     this.resize();
+    this.startRun(hudRefs.seed ?? newSeed(), false);
+  }
+
+  get state(): GameState {
+    switch (this.flow.phase) {
+      case 'intro':
+        return 'intro';
+      case 'intermission':
+      case 'wave':
+        return 'playing';
+      case 'offer':
+        return 'offer';
+      case 'dying':
+        return 'dying';
+      case 'defeat':
+        return 'over';
+      case 'victory':
+        return 'victory';
+    }
   }
 
   get introActive(): boolean {
@@ -218,10 +292,12 @@ export class Game {
     const frame = (now: number) => {
       requestAnimationFrame(frame);
       const since = now - this.lastFrame;
-      const halted = this.menuPaused || this.state === 'upgrade' || this.state === 'over';
+      const st = this.state;
+      const halted = this.menuPaused || st === 'offer' || st === 'over' || (st === 'victory' && this.endShown);
       if (since < (1000 / (halted ? HALTED_FPS : TARGET_FPS)) * 0.82) return;
       this.lastFrame = now;
       if (this.frozen) return;
+      this.input.poll();
       const dt = Math.min(since / 1000, 1 / 20);
       const t0 = performance.now();
       this.tick(dt);
@@ -245,25 +321,52 @@ export class Game {
     this.input.override = intent;
   }
 
+  setHeadless(on: boolean): void {
+    this.headless = on;
+    this.hud.enabled = !on;
+    if (on) {
+      this.setMenuPaused(false);
+      return;
+    }
+    // The HUD skipped every update while headless; bring it back in line.
+    this.hud.setWave(this.flow.run.wave, RUN_WAVES);
+    this.hud.setLoadout(this.flow.run.loadout, this.flow.run.runes);
+    const plan = this.flow.plans[this.flow.run.wave - 1];
+    this.hud.setPreview(plan && this.state === 'playing' ? { label: `Wave ${plan.wave}`, boss: plan.boss, elites: plan.elites } : null);
+  }
+
+  newRun(seed = newSeed()): void {
+    this.startRun(seed, false);
+  }
+
+  /** Same seed, same waves and elites, straight from the death card. */
+  retry(): void {
+    this.startRun(this.flow.run.seed, true);
+  }
+
   tick(dt: number): void {
     this.elapsed += dt;
-    const halted = this.menuPaused || this.state === 'upgrade';
+    const st = this.state;
+    const halted = this.menuPaused || st === 'offer';
     const sim = halted ? 0 : this.hitStop > 0 ? dt * 0.06 : dt;
     if (!halted) {
       this.stateTime += dt;
       this.hitStop = Math.max(0, this.hitStop - dt);
       this.invuln = Math.max(0, this.invuln - dt);
+      this.spiteCooldown = Math.max(0, this.spiteCooldown - sim);
     }
 
     this.updateIntro(sim);
-    const events = this.state === 'playing' ? this.combat.update(sim) : [];
+    const live = st === 'playing';
+    const events = live ? this.combat.update(sim) : [];
 
     const action = this.combat.action;
-    const spec = action ? ATTACKS[action.id] : null;
-    let intent = this.state === 'playing' && !halted ? this.input.read() : STILL;
+    const spec = action ? this.attacks[action.id] : null;
+    let intent = live && !halted ? this.input.read() : STILL;
     const scale = spec ? spec.moveScale : this.animator.roaring ? 0.2 : 1;
     if (scale < 1) intent = { x: intent.x * scale, y: intent.y * scale, run: false };
-    stepMotion(this.motion, intent, this.cameraRig.azimuth, sim, this.motionCfg, spec?.lockFacing ? action!.yaw : undefined);
+    stepMotion(this.motion, intent, this.cameraRig.azimuth, sim, MOTION, spec?.lockFacing ? action!.yaw : undefined);
+    if (action && spec) this.lunge(spec, action, sim);
 
     const root = this.rig.root;
     root.position.x = this.motion.pos.x;
@@ -271,35 +374,43 @@ export class Game {
     root.rotation.y = this.motion.yaw;
     this.animator.update(sim, {
       speed: this.motion.speed,
-      walkSpeed: this.motionCfg.walkSpeed,
-      runSpeed: this.motionCfg.runSpeed,
+      walkSpeed: MOTION.walkSpeed,
+      runSpeed: MOTION.runSpeed,
       yawRate: this.motion.yawRate,
       accelForward: this.motion.accelForward,
-      action: action ? { id: action.id, p: this.combat.progress } : null,
+      action: action && spec ? { pose: spec.pose, p: this.combat.progress } : null,
     });
     if (this.animator.roarEnvelope > 0.6) this.cameraRig.kick(sim * 1.6);
-    if (action?.id === 'beam' && this.combat.progress < 0.4) this.chargeBeam();
+    if (action?.id === 'beam' && this.combat.progress < 0.4 && !this.headless) this.chargeBeam();
     for (const ev of events) this.onHit(ev);
 
-    if (this.state === 'playing' && !halted) {
-      for (const ev of this.waves.update(sim, this.enemies.alive)) this.onWave(ev);
-      this.enemies.update(sim, this.motion.pos, HERO_RADIUS);
+    if (live && !halted) {
+      this.runScheduled(sim);
+      for (const ev of this.flow.update(sim, this.enemies.alive)) this.onFlow(ev);
+      this.enemies.update(sim, this.motion.pos, HERO_BODY_RADIUS, heroHurtRadius(this.flow.run.loadout));
       this.score.update(sim);
+      this.collectRelics();
     }
     if (this.state === 'dying') this.updateDeath();
+    if (this.state === 'victory') this.updateVictory();
+    this.flow.run.hp = this.hp;
+    this.flow.run.score = this.score.score;
+
+    this.heroFlash.uFlash.value = Math.max(0, this.heroFlash.uFlash.value - sim * 2.5);
+    this.effects.update(sim);
+    this.dust.update(sim);
+    this.embers.update(sim);
+    if (this.headless) return;
+
     this.sfx.setListener(this.motion.pos, cameraBasis(this.cameraRig.azimuth).right);
     this.syncAudio();
     this.sfx.update(dt);
-    this.heroFlash.uFlash.value = Math.max(0, this.heroFlash.uFlash.value - sim * 2.5);
-
     this.moon.position.set(root.position.x + 8, 16, root.position.z + 3);
     this.moon.target.position.set(root.position.x, 0, root.position.z);
     this.tmp.set(root.position.x, 0, root.position.z);
     this.cameraRig.update(halted ? 0 : dt, this.tmp, this.motion.vel.x, this.motion.vel.z);
     this.arena.update(dt, this.elapsed);
-    this.effects.update(sim);
-    this.dust.update(sim);
-    this.embers.update(sim);
+    this.relics.update(this.elapsed);
     this.motes.update(dt);
     this.renderer.info.reset();
     this.gpuTimer.begin();
@@ -310,7 +421,7 @@ export class Game {
 
   /** Lowers the render scale while frames run over budget, raises it again with headroom. */
   private adaptResolution(dt: number, halted: boolean): void {
-    if (halted) return;
+    if (halted || this.headless) return;
     const gpu = this.gpuTimer.lastMs;
     const measured = this.gpuTimer.supported && Number.isFinite(gpu);
     const changed = measured
@@ -321,7 +432,39 @@ export class Game {
     this.resize();
   }
 
-  // ---------- flow ----------
+  // ---------- run flow ----------
+
+  private startRun(seed: number, retry: boolean): void {
+    const prev = this.flow;
+    if (prev && prev.run.outcome === 'running' && prev.phase !== 'intro') this.logRunEnd('abandoned');
+    if (retry) this.log.push('retry', { seed, afterOutcome: prev?.run.outcome ?? 'none', afterWave: prev?.run.wave ?? 0 });
+    this.flow = new RunFlow(seed, HERO_HP);
+    this.enemies.clear();
+    this.effects.clear();
+    this.relics.clear();
+    this.combat.reset();
+    this.score.reset();
+    this.scheduled = [];
+    this.hud.hideEndScreens();
+    this.hud.hideOffer();
+    this.setMenuPaused(false);
+    this.hp = HERO_HP;
+    this.deathCause = '';
+    this.endShown = false;
+    this.spiteCooldown = 0;
+    this.hitStop = 0;
+    this.invuln = 0;
+    this.applyLoadout();
+    this.hud.setWave(0, RUN_WAVES);
+    this.hud.setPreview(null);
+    Object.assign(this.motion, createMotionState());
+    this.rig.root.rotation.z = 0;
+    this.rig.root.position.y = -RISE_DEPTH;
+    this.introTime = 0;
+    this.roared = false;
+    this.stateTime = 0;
+    this.log.startRun({ seed: this.flow.run.seed, retry });
+  }
 
   private updateIntro(dt: number): void {
     if (this.state !== 'intro') return;
@@ -345,270 +488,321 @@ export class Game {
   }
 
   private beginPlay(): void {
-    this.state = 'playing';
     this.stateTime = 0;
-    this.waves.start(1.2);
+    this.flow.begin(1.2);
   }
 
   private updateDeath(): void {
     const p = Math.min(1, this.stateTime / DEATH_TIME);
     this.rig.root.position.y = -RISE_DEPTH * p * p;
     this.rig.root.rotation.z = Math.sin(p * Math.PI * 0.5) * 0.35;
-    if (Math.random() < 0.5) this.spawnDust(this.motion.pos.x, this.motion.pos.z, 1.4, 0.6, 1.2);
+    if (Math.random() < 0.5 && !this.headless) this.spawnDust(this.motion.pos.x, this.motion.pos.z, 1.4, 0.6, 1.2);
     if (p < 1) return;
-    this.state = 'over';
+    for (const ev of this.flow.finishDeath()) this.onFlow(ev);
+  }
+
+  private updateVictory(): void {
+    if (this.endShown || this.stateTime < VICTORY_CARD) return;
+    this.endShown = true;
+    this.hud.showVictory(this.summary());
+  }
+
+  private summary(): RunSummary {
+    const run = this.flow.run;
     const newBest = this.score.score > this.best;
     if (newBest) {
       this.best = this.score.score;
       saveBest(this.best);
     }
-    this.hud.showGameOver({ wave: this.waves.wave, kills: this.kills, score: this.score.score, best: this.best, newBest });
+    return {
+      seed: run.seed,
+      wave: run.wave,
+      waves: RUN_WAVES,
+      kills: run.kills,
+      score: this.score.score,
+      best: this.best,
+      newBest,
+      time: run.time,
+      cause: this.deathCause,
+      loadout: run.loadout,
+      runes: run.runes,
+    };
   }
 
-  private restart(): void {
-    this.enemies.clear();
-    this.effects.clear();
-    this.combat.reset();
-    this.score.reset();
-    this.hud.hideGameOver();
-    this.hud.hideUpgrades();
-    this.setMenuPaused(false);
-    this.levels = {};
-    this.applyStats();
-    this.hp = this.stats.maxHp;
-    this.kills = 0;
-    this.hud.setWave(0);
-    Object.assign(this.motion, createMotionState());
-    this.rig.root.rotation.z = 0;
-    this.rig.root.position.y = -RISE_DEPTH;
-    this.introTime = 0;
-    this.roared = false;
-    this.state = 'intro';
+  private logRunEnd(outcome: string): void {
+    const run = this.flow.run;
+    this.log.push('runEnd', {
+      outcome,
+      seed: run.seed,
+      wave: run.wave,
+      kills: run.kills,
+      score: this.score.score,
+      runSeconds: Math.round(run.time * 10) / 10,
+      wallSeconds: this.log.wallSeconds,
+      loadout: { ...run.loadout },
+      runes: [...run.runes],
+    });
+  }
+
+  private onFlow(ev: FlowEvent): void {
+    switch (ev.kind) {
+      case 'preview':
+        this.hud.setPreview({ label: `Next · wave ${ev.wave}`, boss: ev.boss, elites: ev.elites });
+        break;
+      case 'waveStart': {
+        this.hud.setWave(ev.wave, RUN_WAVES);
+        this.hud.setPreview({ label: `Wave ${ev.wave}`, boss: ev.boss, elites: ev.elites });
+        const elites = ev.elites.map((f) => `Elite ${FAMILY_LABEL[f]}`).join(' + ');
+        if (ev.boss) this.hud.showBanner(`WAVE ${ev.wave}`, 'The Gloom Matriarch rises', 2800, true);
+        else this.hud.showBanner(`WAVE ${ev.wave}`, `${ev.total} gloomlings · ${elites}`);
+        this.sfx.play('waveStart');
+        break;
+      }
+      case 'spawn': {
+        const gate = this.arena.gates.find((g) => g.id === ev.order.gate)!;
+        this.enemies.spawn(ev.order.kind, gate, ev.order.elite, ev.speedScale);
+        break;
+      }
+      case 'waveCleared': {
+        const bonus = this.score.waveBonus(ev.wave);
+        this.sfx.play('waveClear');
+        this.hp = Math.min(HERO_HP, this.hp + Math.round(HERO_HP * WAVE_HEAL));
+        this.hud.setPreview(null);
+        this.hud.showBanner(`WAVE ${ev.wave} CLEARED`, `+${bonus} · the heart mends`);
+        break;
+      }
+      case 'relic':
+        this.relics.add(ev.id, ev.at, FAMILY_COLOR[ev.family]);
+        this.sfx.play('combo', { pitch: 0.8 });
+        this.hud.showBanner('GRAFT RELIC', `The elite ${FAMILY_LABEL[ev.family]} left a part behind`, 1800);
+        break;
+      case 'offer':
+        this.showOffer(ev.offer.id);
+        break;
+      case 'equip': {
+        const g = GRAFTS[ev.graft];
+        this.log.push('graftAccept', { offer: this.lastOfferId, graft: ev.graft, slot: ev.slot, replaced: ev.replaced });
+        this.applyLoadout();
+        this.burstEmbers(36);
+        this.sfx.play('upgrade');
+        this.hud.showBanner(g.name.toUpperCase(), `${ATTACK_LABEL[SLOT_ATTACK[g.slot]]} rewired`, 1800);
+        break;
+      }
+      case 'rune':
+        this.log.push('runePick', { offer: this.lastOfferId, rune: ev.rune });
+        this.applyLoadout();
+        this.burstEmbers(24);
+        this.sfx.play('upgrade');
+        this.hud.showBanner(RUNES[ev.rune].name.toUpperCase(), `${RUNES[ev.rune].changes} rewired`, 1800);
+        break;
+      case 'reject':
+        this.log.push('graftReject', { offer: ev.offer, grafts: ev.grafts, reason: ev.reason });
+        break;
+      case 'victory':
+        this.onVictory();
+        break;
+      case 'defeat': {
+        this.logRunEnd('defeat');
+        this.hud.showGameOver(this.summary());
+        break;
+      }
+    }
+  }
+
+  private showOffer(relicId: number): void {
+    const offer = this.flow.offer;
+    if (!offer) return;
+    this.relics.remove(relicId);
+    this.combat.cancel();
+    this.lastOfferId = offer.id;
+    this.log.push('graftOffer', {
+      offer: offer.id,
+      family: offer.family,
+      wave: offer.wave,
+      rerolled: offer.rerolled,
+      options: offer.options.map((o) => `${o.type}:${o.id}`),
+    });
+    this.sfx.play('ui');
+    this.hud.showOffer(offer, this.flow.run.loadout, this.flow.run.rerolls, {
+      pick: (i) => this.takeOffer(i),
+      reroll: () => this.rerollOffer(),
+      skip: () => this.skipOffer(),
+    });
+  }
+
+  takeOffer(index: number): boolean {
+    const events = this.flow.take(index);
+    this.afterOffer(events);
+    return events.length > 0;
+  }
+
+  rerollOffer(): boolean {
+    if (this.state !== 'offer' || this.flow.run.rerolls <= 0) return false;
+    this.log.push('reroll', { offer: this.flow.offer?.id ?? 0 });
+    const events = this.flow.reroll();
+    for (const ev of events) this.onFlow(ev);
+    return events.length > 0;
+  }
+
+  skipOffer(): boolean {
+    const events = this.flow.skip();
+    this.afterOffer(events);
+    return events.length > 0;
+  }
+
+  private afterOffer(events: FlowEvent[]): void {
+    if (events.length === 0) return;
+    if (this.flow.phase !== 'offer') this.hud.hideOffer();
+    for (const ev of events) this.onFlow(ev);
+  }
+
+  private collectRelics(): void {
+    const id = this.relics.touching(this.motion.pos, RELIC_PICKUP);
+    if (id === null) return;
+    for (const ev of this.flow.collectRelic(id)) this.onFlow(ev);
+  }
+
+  /** Re-hangs graft parts that changed and re-resolves every attack from the loadout and runes. */
+  private applyLoadout(): void {
+    const { loadout, runes } = this.flow.run;
+    for (const slot of SLOTS) {
+      const id = loadout[slot] ?? null;
+      if ((this.parts.get(slot) ?? null) === id) continue;
+      this.parts.set(slot, id);
+      for (const mesh of this.rig.setPart(slot, id ? GRAFTS[id].recipe : null)) applyFlash(mesh.material as THREE.Material, this.heroFlash);
+    }
+    this.attacks = resolveAttacks(loadout, runes);
+    this.combat.specs = this.attacks;
+    this.hud.setLoadout(loadout, runes);
+  }
+
+  private onVictory(): void {
+    this.enemies.shatterAll();
+    this.relics.clear();
+    this.combat.cancel();
+    this.scheduled = [];
+    const bonus = this.score.waveBonus(RUN_WAVES) + VICTORY_BONUS;
+    this.score.score += VICTORY_BONUS;
     this.stateTime = 0;
-    this.waves.phase = 'idle';
+    this.hud.setPreview(null);
+    this.hud.showBanner('MATRIARCH SLAIN', `The vault holds · +${bonus}`, 2600, true);
+    this.sfx.play('waveClear');
+    this.logRunEnd('victory');
   }
 
   private setMenuPaused(paused: boolean): void {
     const allowed = paused ? this.state === 'playing' : true;
     if (!allowed || this.menuPaused === paused) return;
     this.menuPaused = paused;
-    this.hud.showPause(paused);
+    this.hud.showPause(paused, this.flow.run.seed);
     // Applied immediately: a hidden tab stops the frame loop, so tick() would not get to it.
     this.syncAudio();
   }
 
   private syncAudio(): void {
-    this.sfx.setMode(gameAudioMode(this.state, this.menuPaused));
+    const st = this.state;
+    this.sfx.setMode(gameAudioMode(st === 'victory' && this.endShown ? 'over' : st, this.menuPaused));
   }
 
-  private onWave(ev: WaveEvent): void {
-    if (ev.kind === 'waveStart') {
-      this.hud.setWave(ev.wave);
-      if (ev.boss) this.hud.showBanner(`WAVE ${ev.wave}`, 'The Gloom Matriarch rises', 2800, true);
-      else this.hud.showBanner(`WAVE ${ev.wave}`, `${ev.total} gloomlings incoming`);
-      this.sfx.play('waveStart');
-    } else if (ev.kind === 'spawn') {
-      const gate = this.arena.gates.find((g) => g.id === ev.order.gate)!;
-      this.enemies.spawn(ev.order.kind, gate, ev.order.elite, ev.speedScale, ev.bossLevel);
-    } else {
-      const bonus = this.score.waveBonus(ev.wave);
-      this.sfx.play('waveClear');
-      this.hp = Math.min(this.stats.maxHp, this.hp + Math.round(this.stats.maxHp * WAVE_HEAL));
-      this.offerUpgrades(`Wave ${ev.wave} cleared · +${bonus}`);
-    }
+  private later(delay: number, run: () => void): void {
+    this.scheduled.push({ t: delay, run });
   }
 
-  private offerUpgrades(title: string): void {
-    this.offered = rollUpgrades(this.levels, Math.random);
-    if (this.offered.length === 0) return;
-    this.state = 'upgrade';
-    this.combat.reset();
-    this.hud.showUpgrades(
-      title,
-      this.offered.map((id) => ({ name: UPGRADES[id].name, text: UPGRADES[id].text, level: this.levels[id] ?? 0, max: UPGRADES[id].max })),
-      (i) => this.pickUpgrade(i),
-    );
+  private runScheduled(dt: number): void {
+    if (this.scheduled.length === 0) return;
+    const due: Array<() => void> = [];
+    this.scheduled = this.scheduled.filter((s) => {
+      s.t -= dt;
+      if (s.t > 0) return true;
+      due.push(s.run);
+      return false;
+    });
+    for (const run of due) if (this.state === 'playing') run();
   }
 
-  private pickUpgrade(index: number): void {
-    const id = this.offered[index];
-    if (this.state !== 'upgrade' || !id) return;
-    this.levels[id] = (this.levels[id] ?? 0) + 1;
-    const before = this.stats.maxHp;
-    this.applyStats();
-    this.hp = Math.min(this.stats.maxHp, this.hp + (this.stats.maxHp - before));
-    this.hud.hideUpgrades();
-    this.state = 'playing';
-    this.burstEmbers(30);
-    this.sfx.play('upgrade');
+  // ---------- test hooks ----------
+
+  /** Drops an elite relic of `family` at the hero's feet and opens it. */
+  debugOffer(family: Family): Offer | null {
+    if (this.state !== 'playing') return null;
+    for (const ev of this.flow.enemyKilled({ kind: family, elite: true, pos: { ...this.motion.pos } })) this.onFlow(ev);
+    const relic = this.flow.relics[this.flow.relics.length - 1];
+    if (relic) for (const ev of this.flow.collectRelic(relic.id)) this.onFlow(ev);
+    return this.flow.offer;
   }
 
-  private applyStats(): void {
-    this.stats = statsFor(this.levels, HERO_HP);
-    this.combat.cooldownScale = { ...this.stats.cooldownScale };
-    this.motionCfg = { ...MOTION, walkSpeed: MOTION.walkSpeed * this.stats.moveSpeed, runSpeed: MOTION.runSpeed * this.stats.moveSpeed };
+  /** Grafts a part straight onto the golem, no offer needed (screenshots, balance checks). */
+  debugEquip(id: GraftId): void {
+    this.flow.run.loadout = equip(this.flow.run.loadout, id).loadout;
+    this.applyLoadout();
   }
 
-  // ---------- combat ----------
+  debugRune(id: RuneId): void {
+    if (!this.flow.run.runes.includes(id)) this.flow.run.runes = [...this.flow.run.runes, id];
+    this.applyLoadout();
+  }
 
-  private action(a: InputAction, fromMouse: boolean): void {
+  // ---------- input ----------
+
+  private action(a: InputAction, src: ActionSource): void {
     if (a === 'mute') {
       const muted = this.sfx.toggleMute();
       this.hud.mute.setAttribute('aria-pressed', String(muted));
-      return;
-    }
-    if (a === 'restart') {
-      if (this.state === 'over') this.restart();
-      return;
-    }
-    if (a === 'pause') {
-      this.setMenuPaused(!this.menuPaused);
       return;
     }
     if (a === 'stats') {
       this.perf.toggle();
       return;
     }
-    if (a === 'pick1' || a === 'pick2' || a === 'pick3') {
-      this.pickUpgrade(Number(a.slice(-1)) - 1);
+    const st = this.state;
+    if (a === 'pause') {
+      if (st === 'playing') this.setMenuPaused(!this.menuPaused);
       return;
     }
-    if (this.state !== 'playing' || this.menuPaused) return;
-    this.combat.request(a, this.aimYaw(a, fromMouse));
+    const nav = a === 'navPrev' ? -1 : a === 'navNext' ? 1 : 0;
+    if (this.menuPaused) {
+      if (nav) this.hud.moveFocus(nav);
+      else if (a === 'confirm') this.hud.activateFocused();
+      else if (a === 'back') this.setMenuPaused(false);
+      return;
+    }
+    if (st === 'offer') {
+      if (a === 'pick1' || a === 'pick2' || a === 'pick3') this.takeOffer(Number(a.slice(-1)) - 1);
+      else if (a === 'reroll' || (a === 'beam' && src.device === 'gamepad')) this.rerollOffer();
+      else if (a === 'skip' || a === 'back') this.skipOffer();
+      else if (a === 'confirm') this.hud.activateFocused();
+      else if (nav) this.hud.moveFocus(nav);
+      return;
+    }
+    if (st === 'dying' || st === 'over') {
+      if (a === 'newRun') this.newRun();
+      else if (a === 'confirm' && !this.hud.activateFocused()) this.retry();
+      else if (nav) this.hud.moveFocus(nav);
+      return;
+    }
+    if (st === 'victory') {
+      if (!this.endShown) return;
+      if (a === 'newRun') this.newRun();
+      else if (a === 'confirm') this.hud.activateFocused();
+      else if (nav) this.hud.moveFocus(nav);
+      return;
+    }
+    if (st !== 'playing') return;
+    const ability = a === 'confirm' ? 'attack' : a === 'back' ? 'spin' : a;
+    if (isAbility(ability)) this.combat.request(ability, this.aimYaw(ability, src));
   }
 
-  private onActionStart(a: ActiveAction): void {
-    switch (a.id) {
-      case 'swipeR':
-      case 'swipeL':
-        this.sfx.play('swing');
-        break;
-      case 'slam':
-        this.sfx.play('swingHeavy');
-        break;
-      case 'beam':
-        this.sfx.play('beamCharge');
-        break;
-      case 'spin':
-        this.sfx.play('spin');
-        break;
-      case 'quake':
-        this.sfx.play('quake');
-        break;
-    }
-  }
-
-  private scaled(spec: AttackSpec): { spec: AttackSpec; damage: number; reach: number } {
-    const s = this.stats;
-    switch (spec.id) {
-      case 'swipeR':
-      case 'swipeL':
-      case 'slam':
-        return { spec, damage: s.meleeDamage, reach: s.reach };
-      case 'beam':
-        return { spec, damage: s.beamDamage, reach: 1 };
-      case 'spin':
-        return { spec, damage: s.spinDamage, reach: s.spinRadius };
-      case 'quake':
-        return { spec: { ...spec, damage: s.quakeDamage }, damage: 1, reach: 1 };
-    }
-  }
-
-  private onHit(ev: HitEvent): void {
-    const { spec, damage, reach } = this.scaled(ATTACKS[ev.id]);
-    const { x, z } = this.motion.pos;
-    const fx = Math.sin(ev.yaw);
-    const fz = Math.cos(ev.yaw);
-    const hits = this.enemies.applyAttack(spec, ev.yaw, this.motion.pos, damage, reach);
-    switch (ev.id) {
-      case 'swipeR':
-      case 'swipeL':
-        this.effects.swipe(x, z, ev.yaw, ev.id === 'swipeR' ? 1 : -1);
-        break;
-      case 'slam': {
-        const cx = x + fx * 1.8;
-        const cz = z + fz * 1.8;
-        this.effects.shockwave(cx, cz, 3.2 * reach, 0xffc070, 0.45);
-        this.effects.flash(cx, 0.6, cz, 25, 0.25);
-        for (let i = 0; i < 30; i++) this.spawnDust(cx, cz, 0.8, 1, 2.2);
-        this.cameraRig.kick(spec.shake);
-        this.sfx.play('slam', { at: { x: cx, z: cz }, volume: 0.85 });
-        break;
-      }
-      case 'beam': {
-        const ox = x + fx * HEART_FORWARD;
-        const oz = z + fz * HEART_FORWARD;
-        this.effects.beam(ox, HEART_Y, oz, ev.yaw, (spec.shape.kind === 'beam' ? spec.shape.length : 14) - HEART_FORWARD);
-        this.effects.flash(ox, HEART_Y, oz, 30, 0.35);
-        this.cameraRig.kick(spec.shake);
-        this.sfx.play('beamBlast');
-        break;
-      }
-      case 'spin':
-        this.effects.shockwave(x, z, 3.1 * reach, 0xffa83a, 0.28, 1.1);
-        for (let i = 0; i < 6; i++) this.spawnEmber(x, 1.1, z, 5);
-        break;
-      case 'quake': {
-        const radius = spec.shape.kind === 'circle' ? spec.shape.radius : 6;
-        this.effects.shockwave(x, z, radius, 0xffc070, 0.7, 0.3);
-        this.effects.shockwave(x, z, radius * 0.66, 0xffffff, 0.5, 1.2);
-        for (let i = 0; i < 40; i++) this.spawnDust(x, z, 1.5, 1, 2.5);
-        this.enemies.shatterProjectiles(this.motion.pos, radius);
-        this.cameraRig.kick(spec.shake);
-        break;
-      }
-    }
-    if (hits > 0 && spec.damage > 0) {
-      this.hitStop = Math.max(this.hitStop, spec.hitStop);
-      this.cameraRig.kick(spec.shake * 0.6);
-      this.sfx.play(spec.damage * damage >= 50 ? 'hitHeavy' : 'hit');
-    }
-  }
-
-  private onKill(e: EnemyState): void {
-    this.kills += 1;
-    const tier = this.score.multiplier;
-    this.score.kill(e.cfg.score);
-    if (this.score.multiplier > tier) this.sfx.play('combo', { pitch: 0.9 + this.score.multiplier * 0.15 });
-    if (e.cfg.kind === 'matriarch') this.hud.showBanner('MATRIARCH SLAIN', `+${e.cfg.score * this.score.multiplier} pts`, 2600, true);
-    const heal = this.stats.siphon;
-    if (heal > 0 && this.state === 'playing' && this.hp < this.stats.maxHp) {
-      this.hp = Math.min(this.stats.maxHp, this.hp + heal);
-      const p = this.project(this.motion.pos.x, 3.2, this.motion.pos.z);
-      if (p.visible) this.hud.damageNumber(p.x, p.y, heal, 'heal');
-    }
-  }
-
-  private damageHero(amount: number, from: Vec2, source: HeroDamageSource): void {
-    if (this.state !== 'playing' || this.invuln > 0) return;
-    this.invuln = INVULN;
-    this.hp = Math.max(0, this.hp - amount);
-    this.heroFlash.uFlash.value = 0.55;
-    this.hud.hurt(amount / 60);
-    this.sfx.play('hurt');
-    const p = this.project(this.motion.pos.x, 3.4, this.motion.pos.z);
-    if (p.visible) this.hud.damageNumber(p.x, p.y, amount, 'player');
-    const dx = this.motion.pos.x - from.x;
-    const dz = this.motion.pos.z - from.z;
-    const d = Math.hypot(dx, dz) || 1;
-    const push = source === 'shot' ? 1.5 : 4;
-    this.motion.vel.x += (dx / d) * push;
-    this.motion.vel.z += (dz / d) * push;
-    if (this.hp <= 0) {
-      this.state = 'dying';
-      this.stateTime = 0;
-      this.combat.reset();
-      this.enemies.silenceLoops();
-      this.sfx.play('death');
-    }
-  }
-
-  /** Mouse aim wins when the cursor is in use; otherwise snap to the nearest enemy ahead, else keep facing. */
-  private aimYaw(ability: Ability, fromMouse: boolean): number {
+  /** Cursor aim when the mouse is in use, right stick on a pad, else snap to the nearest enemy ahead. */
+  private aimYaw(ability: Ability, src: ActionSource): number {
     const pos = this.motion.pos;
-    if (fromMouse || this.input.mouseAiming) {
+    if (src.cursor || (src.device !== 'gamepad' && this.input.mouseAiming)) {
       const p = this.groundPoint(this.input.mouse.x, this.input.mouse.y);
       if (p && Math.hypot(p.x - pos.x, p.z - pos.z) > 0.3) return Math.atan2(p.x - pos.x, p.z - pos.z);
+    }
+    const stick = src.device === 'gamepad' ? this.input.padAim : null;
+    if (stick) {
+      const w = intentToWorld({ x: stick.x, y: stick.y, run: false }, this.cameraRig.azimuth);
+      return Math.atan2(w.x, w.z);
     }
     if (ability === 'spin' || ability === 'quake') return this.motion.yaw;
     const range = ability === 'beam' ? 12 : 6.5;
@@ -619,6 +813,238 @@ export class Game {
     return target ? Math.atan2(target.pos.x - pos.x, target.pos.z - pos.z) : this.motion.yaw;
   }
 
+  // ---------- combat ----------
+
+  private onActionStart(a: ActiveAction): void {
+    const spec = this.attacks[a.id];
+    switch (a.id) {
+      case 'swipeR':
+      case 'swipeL':
+        this.sfx.play('swing', { pitch: spec.pose === 'claw' ? 1.15 : 1 });
+        break;
+      case 'slam':
+        this.sfx.play('swingHeavy');
+        break;
+      case 'beam':
+        this.sfx.play('beamCharge', { pitch: spec.shape.kind === 'circle' ? 1.35 : 1 });
+        break;
+      case 'spin':
+        this.sfx.play('spin');
+        break;
+      case 'quake':
+        this.sfx.play('quake');
+        break;
+    }
+  }
+
+  /** Hook Claw: carries the golem forward along the aim over the start of the swing. */
+  private lunge(spec: AttackSpec, action: ActiveAction, dt: number): void {
+    const b = spec.behaviors.find((x) => x.kind === 'lunge');
+    if (!b || dt <= 0 || this.combat.progress > b.until) return;
+    const step = (b.distance * dt) / (b.until * spec.duration);
+    this.motion.pos.x += Math.sin(action.yaw) * step;
+    this.motion.pos.z += Math.cos(action.yaw) * step;
+    clampToArena(this.motion.pos, this.motion.vel, MOTION.radius);
+    if (!this.headless && Math.random() < 0.6) this.spawnDust(this.motion.pos.x, this.motion.pos.z, 0.6, 0.8, 1.2);
+  }
+
+  private onHit(ev: HitEvent): void {
+    const spec = this.attacks[ev.id];
+    const pos = { ...this.motion.pos };
+    const result = this.enemies.applyAttack(spec, ev.yaw, pos);
+    this.strikeFx(spec, ev, pos);
+    for (const b of spec.behaviors) this.behave(b, spec, ev, pos, result);
+    if (ev.id === 'quake') {
+      const radius = spec.shape.kind === 'circle' ? spec.shape.radius : 6;
+      this.enemies.shatterProjectiles(pos, radius);
+    }
+    if (result.hit.length > 0 && spec.damage > 0) {
+      this.hitStop = Math.max(this.hitStop, spec.hitStop * (result.counters > 0 ? 1.6 : 1));
+      this.cameraRig.kick(spec.shake * 0.6);
+      this.sfx.play(result.counters > 0 || spec.damage >= 50 ? 'hitHeavy' : 'hit');
+      this.input.rumble(spec.damage >= 50 || result.counters > 0 ? 0.7 : 0.25, 0.4, 90);
+    }
+  }
+
+  /** Visuals sized from the attack's real hit shape, so what you see is what hits. */
+  private strikeFx(spec: AttackSpec, ev: HitEvent, pos: Vec2): void {
+    if (this.headless) return;
+    const fx = Math.sin(ev.yaw);
+    const fz = Math.cos(ev.yaw);
+    const shape = spec.shape;
+    const slot = (Object.keys(SLOT_ATTACK) as GraftSlot[]).find((s) => SLOT_ATTACK[s] === ev.id);
+    const graft = slot ? this.flow.run.loadout[slot] : undefined;
+    const tint = graft ? FAMILY_COLOR[GRAFTS[graft].family] : 0xffa83a;
+    switch (shape.kind) {
+      case 'arc':
+        this.effects.swipe(pos.x, pos.z, ev.yaw, ev.id === 'swipeL' ? -1 : 1, {
+          inner: shape.inner ?? 1.3,
+          outer: shape.range,
+          halfAngle: shape.halfAngle,
+        }, tint);
+        break;
+      case 'beam': {
+        const ox = pos.x + fx * HEART_FORWARD;
+        const oz = pos.z + fz * HEART_FORWARD;
+        this.effects.beam(ox, HEART_Y, oz, ev.yaw, shape.length - HEART_FORWARD);
+        this.effects.flash(ox, HEART_Y, oz, 30, 0.35);
+        this.cameraRig.kick(spec.shake);
+        this.sfx.play('beamBlast');
+        break;
+      }
+      case 'circle': {
+        const cx = pos.x + fx * shape.forward;
+        const cz = pos.z + fz * shape.forward;
+        const r = shape.radius + 0.45;
+        if (ev.id === 'slam') {
+          this.slamFx(cx, cz, r, spec.shake);
+        } else if (ev.id === 'spin') {
+          this.effects.shockwave(pos.x, pos.z, r, 0xffa83a, 0.28, 1.1);
+          for (let i = 0; i < 6; i++) this.spawnEmber(pos.x, 1.1, pos.z, 5);
+        } else if (ev.id === 'quake') {
+          this.effects.shockwave(pos.x, pos.z, shape.radius, 0xffc070, 0.7, 0.3);
+          this.effects.shockwave(pos.x, pos.z, shape.radius * 0.66, 0xffffff, 0.5, 1.2);
+          for (let i = 0; i < 40; i++) this.spawnDust(pos.x, pos.z, 1.5, 1, 2.5);
+          this.cameraRig.kick(spec.shake);
+          this.input.rumble(0.8, 0.5, 220);
+        } else {
+          // Burster Heart nova.
+          this.effects.shockwave(pos.x, pos.z, r, tint, 0.5, 1.2);
+          this.effects.shockwave(pos.x, pos.z, r * 0.6, 0xffffff, 0.35, 1.3);
+          this.effects.flash(pos.x, HEART_Y, pos.z, 50, 0.4, tint);
+          this.burstEmbers(30);
+          this.cameraRig.kick(spec.shake);
+          this.sfx.play('beamBlast', { pitch: 1.3 });
+        }
+        break;
+      }
+      case 'none':
+        break;
+    }
+  }
+
+  private slamFx(cx: number, cz: number, r: number, shake: number): void {
+    this.effects.shockwave(cx, cz, r, 0xffc070, 0.45);
+    this.effects.flash(cx, 0.6, cz, 25, 0.25);
+    for (let i = 0; i < 30; i++) this.spawnDust(cx, cz, 0.8, 1, 2.2);
+    this.cameraRig.kick(shake);
+    this.sfx.play('slam', { at: { x: cx, z: cz }, volume: 0.85 });
+    this.input.rumble(0.6, 0.4, 140);
+  }
+
+  /** Graft and rune mechanics that hang off a landed hit. */
+  private behave(b: Behavior, spec: AttackSpec, ev: HitEvent, pos: Vec2, result: StrikeResult): void {
+    const fx = Math.sin(ev.yaw);
+    const fz = Math.cos(ev.yaw);
+    switch (b.kind) {
+      case 'shot': {
+        for (let i = 0; i < b.count; i++) {
+          const a = b.radial
+            ? (i / b.count) * Math.PI * 2 + ev.hitIndex * (Math.PI / b.count) * 0.5 + this.motion.yaw
+            : ev.yaw + (b.count > 1 ? (i / (b.count - 1) - 0.5) * b.spread : 0);
+          const dir = { x: Math.sin(a), z: Math.cos(a) };
+          this.enemies.heroShots.spawn({ x: pos.x + dir.x * 0.8, z: pos.z + dir.z * 0.8 }, dir, b.speed, b.range, b.damage, b.pierce, b.radial ? 1.5 : 1.25);
+        }
+        this.sfx.play('spit', { pitch: b.radial ? 1.6 : 1.3, volume: 0.7 });
+        break;
+      }
+      case 'fuse':
+        for (const c of result.hit) {
+          c.marked = b.delay;
+          this.later(b.delay, () => this.fuseBurst(c, b.radius, b.damage));
+        }
+        break;
+      case 'echo': {
+        const origin = { x: pos.x + fx * b.forward, z: pos.z + fz * b.forward };
+        this.later(b.delay, () => {
+          this.enemies.applyAttack({ ...spec, behaviors: [] }, ev.yaw, origin);
+          if (spec.shape.kind !== 'circle' || this.headless) return;
+          this.slamFx(origin.x + fx * spec.shape.forward, origin.z + fz * spec.shape.forward, spec.shape.radius + 0.45, spec.shake * 0.7);
+        });
+        break;
+      }
+      case 'vortex': {
+        const last = ev.hitIndex === spec.hits.length - 1;
+        this.enemies.applyAttack(
+          last ? circle(b.radius, 0, b.fling, 0.3) : circle(b.radius, 0, 0, 0.12, [{ kind: 'pull', to: b.to }]),
+          ev.yaw,
+          pos,
+        );
+        if (!this.headless) this.effects.shockwave(pos.x, pos.z, b.radius, last ? 0xffc070 : 0xb46bff, last ? 0.4 : 0.22, 0.4);
+        break;
+      }
+      case 'lunge':
+      case 'pull':
+        break;
+    }
+  }
+
+  private fuseBurst(c: EnemyState, radius: number, damage: number): void {
+    const at = { ...c.pos };
+    this.enemies.applyAttack(circle(radius, damage, 7, 0.3), 0, at);
+    if (this.headless) return;
+    const color = FAMILY_COLOR.burster;
+    this.effects.shockwave(at.x, at.z, radius + 0.4, color, 0.4, 0.6);
+    this.effects.flash(at.x, 1, at.z, 30, 0.25, color);
+    for (let i = 0; i < 10; i++) this.spawnEmber(at.x, 0.8, at.z, 2);
+    this.sfx.play('explode', { at, volume: 0.5, pitch: 1.35 });
+    this.cameraRig.kick(0.12);
+  }
+
+  private onKill(e: EnemyState): void {
+    const tier = this.score.multiplier;
+    this.score.kill(e.cfg.score);
+    if (this.score.multiplier > tier) this.sfx.play('combo', { pitch: 0.9 + this.score.multiplier * 0.15 });
+    for (const ev of this.flow.enemyKilled({ kind: e.cfg.kind, elite: e.cfg.elite, pos: e.pos })) this.onFlow(ev);
+  }
+
+  private damageHero(raw: number, from: Vec2, source: HeroDamageSource): void {
+    if (this.state !== 'playing' || this.invuln > 0) return;
+    const amount = Math.min(raw, HERO_HP * MAX_HIT_FRACTION);
+    this.invuln = INVULN;
+    this.hp = Math.max(0, this.hp - amount);
+    this.log.damage({ amount, attack: source.attack, enemy: source.enemy, elite: source.elite, wave: this.flow.run.wave });
+    this.heroFlash.uFlash.value = 0.55;
+    this.hud.hurt(amount / 60);
+    this.sfx.play('hurt');
+    this.input.rumble(0.9, 0.6, 160);
+    const dx = this.motion.pos.x - from.x;
+    const dz = this.motion.pos.z - from.z;
+    const d = Math.hypot(dx, dz) || 1;
+    const push = source.attack === 'shot' ? 1.5 : 4;
+    this.motion.vel.x += (dx / d) * push;
+    this.motion.vel.z += (dz / d) * push;
+    if (this.hp <= 0) {
+      const who = `${source.elite && source.enemy !== 'matriarch' ? 'an elite ' : source.enemy === 'matriarch' ? 'the ' : 'a '}${ENEMY_NAME[source.enemy]}`;
+      this.deathCause = `Felled by ${who}'s ${ATTACK_NOUN[source.attack]} on wave ${this.flow.run.wave}`;
+      this.log.push('death', { attack: source.attack, enemy: source.enemy, elite: source.elite, amount: Math.round(amount), wave: this.flow.run.wave, cause: this.deathCause });
+      this.flow.heroDied();
+      this.stateTime = 0;
+      this.combat.reset();
+      this.scheduled = [];
+      this.hud.hideOffer();
+      this.enemies.silenceLoops();
+      this.sfx.play('death');
+      return;
+    }
+    if (this.flow.run.runes.includes('spite') && this.spiteCooldown <= 0) {
+      this.spiteCooldown = SPITE.cooldown;
+      // Deferred a tick: this runs inside the enemy update loop.
+      this.later(0, () => this.spite());
+    }
+  }
+
+  /** Spite rune: the heart lashes out when struck. */
+  private spite(): void {
+    const pos = { ...this.motion.pos };
+    this.enemies.applyAttack(circle(SPITE.radius, SPITE.damage, SPITE.knockback, SPITE.stun), this.motion.yaw, pos);
+    if (this.headless) return;
+    this.effects.shockwave(pos.x, pos.z, SPITE.radius + 0.4, 0xffc070, 0.35, 1.1);
+    this.effects.flash(pos.x, HEART_Y, pos.z, 35, 0.25);
+    this.burstEmbers(16);
+    this.sfx.play('hitHeavy', { pitch: 0.8 });
+  }
+
   private groundPoint(clientX: number, clientY: number): THREE.Vector3 | null {
     const rect = this.renderer.domElement.getBoundingClientRect();
     this.ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
@@ -627,6 +1053,7 @@ export class Game {
   }
 
   private project(x: number, y: number, z: number): ScreenPoint {
+    if (this.headless) return { x: 0, y: 0, visible: false };
     const v = this.tmp.set(x, y, z).project(this.camera);
     const w = this.container.clientWidth || window.innerWidth;
     const h = this.container.clientHeight || window.innerHeight;
@@ -662,6 +1089,7 @@ export class Game {
   }
 
   private burstEmbers(count: number): void {
+    if (this.headless) return;
     const fx = Math.sin(this.motion.yaw);
     const fz = Math.cos(this.motion.yaw);
     for (let i = 0; i < count; i++) {
@@ -684,6 +1112,7 @@ export class Game {
   }
 
   private footstep(side: FootSide, strength: number): void {
+    if (this.headless) return;
     const foot = side === 'left' ? this.rig.footL : this.rig.footR;
     foot.getWorldPosition(this.tmp);
     const count = Math.round(6 + strength * 8);
@@ -731,12 +1160,12 @@ export class Game {
   // ---------- hud ----------
 
   private updateHud(dt: number): void {
-    this.hud.setHealth(this.hp, this.stats.maxHp);
-    this.hud.setStatus(this.enemies.alive + this.waves.pending, this.score.score);
+    this.hud.setHealth(this.hp, HERO_HP);
+    this.hud.setStatus(this.enemies.alive + this.flow.pending, this.score.score);
     this.hud.setCombo(this.score.combo, this.score.multiplier, this.score.comboFraction);
     const boss = this.enemies.boss();
     this.hud.setBoss(boss?.hp ?? 0, boss?.trailHp ?? 0, boss?.cfg.maxHp ?? 0);
-    const actionAbility = this.combat.action ? ATTACKS[this.combat.action.id].ability : null;
+    const actionAbility = this.combat.action ? this.attacks[this.combat.action.id].ability : null;
     for (const a of ABILITIES) this.hud.setCooldown(a, this.combat.cooldownFraction(a), actionAbility === a);
     this.hud.updateBars(this.state === 'over' ? [] : this.enemies.bars());
     const info = this.renderer.info.render;

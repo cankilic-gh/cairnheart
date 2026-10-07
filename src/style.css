@@ -522,19 +522,9 @@ kbd.wide {
   will-change: transform, opacity;
 }
 
-.dmg.is-heavy {
+.dmg.is-crit {
   font-size: 16px;
   color: #ffe36e;
-}
-
-.dmg.is-player {
-  font-size: 14px;
-  color: #ff6b6b;
-}
-
-.dmg.is-heal {
-  font-size: 11px;
-  color: #9dff9a;
 }
 
 /* ---------- banner + modals ---------- */
@@ -658,34 +648,43 @@ kbd.wide {
   color: var(--glow-bright);
 }
 
+.modal-actions .hud-btn {
+  min-width: 150px;
+}
+
 .gameover-btn {
-  margin-top: 20px;
-  min-width: 200px;
+  border-color: var(--glow);
 }
 
-.upgrade-card {
-  width: min(860px, 100%);
+.offer-modal {
+  width: min(900px, 100%);
 }
 
-.upgrade-options {
+.offer-modal h2 {
+  color: var(--family, var(--glow-bright));
+}
+
+.offer-options {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 12px;
-  margin-top: 20px;
+  margin-top: 18px;
 }
 
-.upgrade-option {
+.offer-card {
+  --family: var(--glow);
   font-family: var(--term);
   display: grid;
   align-content: start;
   justify-items: start;
-  gap: 10px;
-  min-height: 150px;
-  padding: 14px;
+  gap: 8px;
+  min-height: 200px;
+  padding: 12px 14px 14px;
   text-align: left;
   color: var(--ink);
-  background: rgba(20, 17, 28, 0.9);
+  background: rgba(20, 17, 28, 0.92);
   border: 2px solid var(--glow-dim);
+  border-top: 4px solid var(--family);
   cursor: pointer;
   transition:
     border-color 150ms ease,
@@ -693,51 +692,218 @@ kbd.wide {
     background-color 150ms ease;
 }
 
-.upgrade-option:hover,
-.upgrade-option:focus-visible {
-  border-color: var(--glow);
-  background: rgba(40, 28, 18, 0.95);
+.offer-card.is-rune {
+  --family: var(--glow-bright);
+}
+
+.offer-card:hover,
+.offer-card:focus-visible {
+  border-color: var(--family);
+  background: rgba(34, 26, 22, 0.96);
   transform: translateY(-2px);
   outline: none;
 }
 
-.upgrade-name {
+.offer-card-head {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.offer-slot {
+  font-family: var(--pixel);
+  font-size: 8px;
+  line-height: 1.5;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--bone);
+  opacity: 0.85;
+}
+
+.offer-glyph .golem {
+  width: 40px;
+  height: 40px;
+}
+
+.offer-rune-glyph {
+  font-size: 30px;
+  color: var(--glow-bright);
+  text-shadow: 0 0 10px rgba(255, 179, 71, 0.7);
+}
+
+.offer-name {
   font-family: var(--pixel);
   font-size: 11px;
   line-height: 1.5;
-  color: var(--glow-bright);
+  color: var(--family);
 }
 
-.upgrade-pips {
-  display: flex;
-  gap: 4px;
+.offer-text {
+  font-size: 20px;
+  line-height: 1.12;
 }
 
-.upgrade-pips i {
-  width: 10px;
-  height: 10px;
-  background: rgba(255, 255, 255, 0.12);
+.offer-foot {
+  margin-top: auto;
+  font-size: 17px;
+  color: var(--bone);
+  opacity: 0.7;
 }
 
-.upgrade-pips i.is-on {
-  background: var(--glow);
-  box-shadow: 0 0 6px rgba(255, 179, 71, 0.6);
+.golem {
+  display: block;
+  color: rgba(239, 226, 196, 0.45);
+  shape-rendering: crispEdges;
 }
 
-.upgrade-pips i.is-next {
-  background: var(--glow-bright);
-  animation: pip-pulse 0.9s steps(2) infinite;
+.golem .g-body {
+  fill: rgba(239, 226, 196, 0.16);
 }
 
-@keyframes pip-pulse {
+.golem .g-slot {
+  stroke-width: 1;
+  stroke-dasharray: 1 1;
+}
+
+.golem .g-slot.is-focus {
+  animation: slot-pulse 0.9s steps(2) infinite;
+}
+
+@keyframes slot-pulse {
   50% {
-    background: rgba(255, 255, 255, 0.12);
+    opacity: 0.35;
   }
 }
 
-.upgrade-text {
-  font-size: 20px;
-  line-height: 1.15;
+/* ---------- wave preview + loadout ---------- */
+
+.preview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px 8px;
+  margin-top: 8px;
+}
+
+.preview[hidden] {
+  display: none;
+}
+
+.preview-label {
+  font-family: var(--pixel);
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--bone);
+  opacity: 0.8;
+}
+
+.preview-elites {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.preview-note {
+  font-size: 17px;
+  color: var(--bone);
+  opacity: 0.75;
+}
+
+.family-chip {
+  --family: var(--glow);
+  padding: 3px 6px 2px;
+  font-family: var(--pixel);
+  font-size: 8px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #07060c;
+  background: var(--family);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--family) 55%, transparent);
+}
+
+.family-chip.is-boss {
+  --family: #c77dff;
+}
+
+.loadout {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  min-height: 26px;
+}
+
+.loadout-golem .golem {
+  width: 26px;
+  height: 26px;
+}
+
+.rune-chip {
+  padding: 2px 5px;
+  font-size: 16px;
+  color: var(--glow-bright);
+  border: 1px solid var(--glow-dim);
+  background: var(--panel);
+}
+
+.victory-card {
+  width: min(520px, 100%);
+  border-color: rgba(255, 179, 71, 0.55);
+}
+
+.victory-build {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+.victory-build .golem {
+  width: 64px;
+  height: 64px;
+}
+
+.modal .victory-build p {
+  margin: 0;
+  font-size: 19px;
+  color: var(--bone);
+}
+
+.modal .gameover-cause {
+  color: #ff8a8f;
+}
+
+.hud-btn kbd {
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.hud-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.hint-key {
+  font-family: var(--pixel);
+  font-size: 9px;
+}
+
+/* Keyboard glyphs by default; gamepad glyphs once a pad is the last device used. */
+kbd.pad {
+  display: none;
+}
+
+:root[data-input='gamepad'] kbd.key {
+  display: none;
+}
+
+:root[data-input='gamepad'] kbd.pad {
+  display: inline-grid;
 }
 
 /* ---------- touch joystick ---------- */
@@ -984,16 +1150,120 @@ kbd.wide {
   .combo {
     top: calc(var(--top) + 150px);
   }
-  .upgrade-options {
+  .offer-options {
     grid-template-columns: 1fr;
   }
-  .upgrade-option {
+  .offer-card {
     min-height: 0;
+  }
+  .preview {
+    justify-content: flex-start;
+  }
+}
+
+/* Phones held sideways (e.g. 844x390): the bottom row is too short for a centred health bar
+   next to four ability buttons, so abilities stack into the thumb grid and the bar narrows. */
+@media (max-height: 500px) and (orientation: landscape) {
+  .hud-title p {
+    display: none;
+  }
+  .hud-controls {
+    top: calc(var(--top) + 30px);
+    bottom: auto;
+  }
+  .hud-wave-title {
+    font-size: 11px;
+  }
+  .hud-wave-info {
+    margin-top: 2px;
+    font-size: 17px;
+  }
+  .preview {
+    margin-top: 4px;
+  }
+  .boss {
+    margin-top: 4px;
+  }
+  .combo {
+    top: calc(var(--top) + 52px);
+  }
+  .hud-health {
+    left: var(--left);
+    width: min(300px, 34vw);
+    transform: none;
+  }
+  .hud-health-label {
+    font-size: 16px;
+  }
+  .hp-bar {
+    height: 12px;
+  }
+  .abilities {
+    display: grid;
+    grid-template-columns: 58px 80px;
+    grid-template-areas:
+      'quake beam'
+      'spin attack';
+    gap: 8px;
+    align-items: end;
+    justify-items: end;
+  }
+  .ability-quake {
+    grid-area: quake;
+  }
+  .ability-spin {
+    grid-area: spin;
+  }
+  .ability-beam {
+    grid-area: beam;
+  }
+  .ability-attack {
+    grid-area: attack;
+    width: 80px;
+    height: 80px;
+    font-size: 10px;
+  }
+  .ability {
+    width: 58px;
+    height: 58px;
+  }
+  .banner {
+    top: 30%;
+  }
+  .modal {
+    align-items: start;
+    padding: 10px 16px;
+  }
+  .modal-card {
+    padding: 14px 16px;
+  }
+  .modal h2 {
+    font-size: 14px;
+  }
+  .offer-options {
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .offer-card {
+    min-height: 0;
+    gap: 4px;
+    padding: 8px 10px 10px;
+  }
+  .offer-text {
+    font-size: 17px;
+  }
+  .offer-glyph .golem {
+    width: 30px;
+    height: 30px;
+  }
+  .modal-actions {
+    margin-top: 10px;
   }
 }
 
 @media (pointer: coarse) {
   .ability kbd,
+  .hud-btn kbd,
   .keys-desktop {
     display: none !important;
   }
@@ -1018,12 +1288,12 @@ kbd.wide {
   .banner,
   .ability,
   .combo,
-  .upgrade-option {
+  .offer-card {
     transition: none;
   }
   .hp-bar.is-low,
   .ability.is-ready,
-  .upgrade-pips i.is-next {
+  .golem .g-slot.is-focus {
     animation: none;
   }
 }

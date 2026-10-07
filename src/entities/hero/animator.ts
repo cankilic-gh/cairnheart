@@ -1,4 +1,4 @@
-import type { AttackId } from '../../combat/attacks';
+import type { PoseId } from '../../combat/attacks';
 import { Spring, clamp, lerp, smoothstep } from '../../core/math';
 import { HIP_Y, type HeroRig } from './model';
 
@@ -8,8 +8,8 @@ export interface AnimInput {
   runSpeed: number;
   yawRate: number;
   accelForward: number;
-  /** Current combat action and its normalised progress; the intro roar uses its own overlay. */
-  action?: { id: AttackId; p: number } | null;
+  /** Current combat action's pose (grafts can swap it) and normalised progress; the intro roar uses its own overlay. */
+  action?: { pose: PoseId; p: number } | null;
 }
 
 export type FootSide = 'left' | 'right';
@@ -55,11 +55,13 @@ interface ActionPose {
 
 const neg = (k: Keys): Keys => k.map(([p, v]) => [p, -v] as const);
 
-const SWIPE_YAW: Keys = [[0, 0], [0.32, -0.55], [0.46, 0.6], [0.72, 0.4], [1, 0]];
-const SWIPE_X: Keys = [[0, 0], [0.32, -1.25], [0.46, -1.45], [0.72, -0.85], [1, 0]];
-const SWIPE_Z: Keys = [[0, 0], [0.32, -0.85], [0.46, 0.45], [0.72, 0.3], [1, 0]];
-const SWIPE_PITCH: Keys = [[0, 0], [0.46, 0.12], [1, 0]];
-const SWIPE_JAW: Keys = [[0, 0], [0.4, 0.18], [1, 0]];
+// The strike lands at p ≈ 0.32 (0.14 s of 0.44 s): a short wind-up, then a long follow-through.
+const SWIPE_YAW: Keys = [[0, 0], [0.2, -0.55], [0.34, 0.6], [0.62, 0.4], [1, 0]];
+const SWIPE_X: Keys = [[0, 0], [0.2, -1.25], [0.34, -1.45], [0.62, -0.85], [1, 0]];
+const SWIPE_Z: Keys = [[0, 0], [0.2, -0.85], [0.34, 0.45], [0.62, 0.3], [1, 0]];
+const SWIPE_PITCH: Keys = [[0, 0], [0.34, 0.12], [1, 0]];
+const SWIPE_JAW: Keys = [[0, 0], [0.3, 0.18], [1, 0]];
+const NOVA_ARM_Z: Keys = [[0, 0], [0.32, -0.25], [0.42, 1.35], [0.75, 1.0], [1, 0]];
 
 const SLAM_X: Keys = [[0, 0], [0.42, -2.7], [0.52, -1.0], [0.76, -0.95], [1, 0]];
 const SLAM_Z: Keys = [[0, 0], [0.42, -0.12], [0.52, -0.08], [1, 0]];
@@ -70,7 +72,7 @@ const QUAKE_ARM_Z: Keys = [[0, 0], [0.2, 0.9], [0.28, 0.6], [0.6, 0.4], [1, 0]];
 const SPIN_ARM_Z: Keys = [[0, 0], [0.12, 1.35], [0.88, 1.35], [1, 0]];
 const SPIN_ARM_X: Keys = [[0, 0], [0.12, -0.12], [0.88, -0.12], [1, 0]];
 
-const POSES: Partial<Record<AttackId, ActionPose>> = {
+const POSES: Partial<Record<PoseId, ActionPose>> = {
   swipeR: { torsoYaw: SWIPE_YAW, armRX: SWIPE_X, armRZ: SWIPE_Z, torsoPitch: SWIPE_PITCH, jaw: SWIPE_JAW },
   swipeL: { torsoYaw: neg(SWIPE_YAW), armLX: SWIPE_X, armLZ: neg(SWIPE_Z), torsoPitch: SWIPE_PITCH, jaw: SWIPE_JAW },
   slam: {
@@ -120,6 +122,30 @@ const POSES: Partial<Record<AttackId, ActionPose>> = {
     glow: [[0, 0], [0.15, 1], [0.85, 1], [1, 0]],
     torsoPitch: [[0, 0], [0.12, -0.08], [0.88, -0.08], [1, 0]],
     spinTurns: 4,
+  },
+  // Hook Claw: the left arm spears forward while the body dives into the lunge.
+  claw: {
+    torsoYaw: [[0, 0], [0.15, 0.3], [0.45, -0.35], [1, 0]],
+    torsoPitch: [[0, 0], [0.3, 0.38], [0.6, 0.25], [1, 0]],
+    armLX: [[0, 0], [0.15, -0.6], [0.43, -1.75], [0.7, -1.2], [1, 0]],
+    armLZ: [[0, 0], [0.43, -0.15], [1, 0]],
+    armRX: [[0, 0], [0.43, 0.5], [1, 0]],
+    hips: [[0, 0], [0.3, -1.6], [0.6, -1], [1, 0]],
+    jaw: [[0, 0], [0.43, 0.35], [1, 0]],
+  },
+  // Burster Heart: hunch over the swelling core, then throw the arms wide as it blows.
+  nova: {
+    torsoPitch: [[0, 0], [0.32, 0.4], [0.42, -0.3], [0.7, -0.1], [1, 0]],
+    head: [[0, 0], [0.32, 0.3], [0.42, -0.3], [1, 0]],
+    jaw: [[0, 0], [0.32, 0.5], [0.42, 0.95], [0.75, 0.6], [1, 0]],
+    armLZ: NOVA_ARM_Z,
+    armRZ: neg(NOVA_ARM_Z),
+    armLX: [[0, 0], [0.32, 0.5], [0.42, -0.2], [1, 0]],
+    armRX: [[0, 0], [0.32, 0.5], [0.42, -0.2], [1, 0]],
+    hips: [[0, 0], [0.32, -1.2], [0.42, 0.6], [1, 0]],
+    glow: [[0, 0], [0.32, 2.4], [0.42, 4], [0.7, 1.2], [1, 0]],
+    tendril: [[0, 0], [0.32, 0.4], [0.42, 0.8], [1, 0]],
+    tremble: [[0, 0], [0.3, 1], [0.4, 0], [1, 0]],
   },
 };
 
@@ -182,7 +208,7 @@ export class HeroAnimator {
     this.roarEnvelope = this.roarTimer > 0 ? smoothstep(0, 0.22, rp) * (1 - smoothstep(0.72, 1, rp)) : 0;
     const roar = this.roarEnvelope;
 
-    const pose = m.action ? POSES[m.action.id] : undefined;
+    const pose = m.action ? POSES[m.action.pose] : undefined;
     const ap = m.action?.p ?? 0;
     const k = (keys: Keys | undefined): number => (keys ? sampleKeys(keys, ap) : 0);
     const acting = pose ? 1 : 0;
@@ -228,6 +254,9 @@ export class HeroAnimator {
     r.hornR.rotation.x = tp;
 
     r.spinner.rotation.y = pose?.spinTurns ? easeInOut(ap) * pose.spinTurns * Math.PI * 2 : 0;
+    // Graft parts: back quills fan out while spinning, the core part swells on every heartbeat.
+    r.mounts.back.rotation.x = -k(pose?.tendril) * 0.5;
+    r.mounts.core.scale.setScalar(1 + this.beat * 0.08 + k(pose?.glow) * 0.05);
 
     const bpm = lerp(52, 118, Math.max(runF, roar, acting * 0.6));
     this.heartRate = lerp(this.heartRate, bpm / 60, 1 - Math.exp(-dt * 1.5));

@@ -41,9 +41,17 @@ void main() {
 }`;
 
 const ARC_INNER = 1.3;
-const ARC_OUTER = 3.1;
-const ARC_LENGTH = 2.5;
-const ARC_START = -Math.PI / 2 - ARC_LENGTH / 2;
+
+/** Telegraphs draw after (and over) every hero effect so a warning is never hidden by our own glow. */
+export const TELEGRAPH_ORDER = 10;
+
+export interface ArcSize {
+  inner: number;
+  outer: number;
+  halfAngle: number;
+}
+
+const DEFAULT_ARC: ArcSize = { inner: ARC_INNER, outer: 3.1, halfAngle: 1.25 };
 
 const additive = (color: THREE.ColorRepresentation, boost = 1): THREE.MeshBasicMaterial =>
   new THREE.MeshBasicMaterial({
@@ -60,7 +68,7 @@ export class Effects {
   private readonly lights: FlashLight[] = [];
   private readonly ringGeo = new THREE.RingGeometry(0.86, 1, 48);
   private readonly discGeo = new THREE.CircleGeometry(1, 40);
-  private readonly arcGeo = new THREE.RingGeometry(ARC_INNER, ARC_OUTER, 32, 2, ARC_START, ARC_LENGTH);
+  private readonly arcGeos = new Map<string, THREE.RingGeometry>();
   private readonly beamRingGeo = new THREE.RingGeometry(0.42, 0.62, 16);
   private readonly beamCoreGeo = new THREE.BoxGeometry(1, 1, 1).translate(0, 0, 0.5);
 
@@ -85,15 +93,24 @@ export class Effects {
     });
   }
 
-  swipe(x: number, z: number, yaw: number, side: 1 | -1, y = 1.3): void {
+  /** Swipe trail sized to the attack's real hit wedge, so what you see is what hits. */
+  swipe(x: number, z: number, yaw: number, side: 1 | -1, arc: ArcSize = DEFAULT_ARC, color: THREE.ColorRepresentation = 0xffa83a, y = 1.3): void {
+    const length = arc.halfAngle * 2;
+    const start = -Math.PI / 2 - arc.halfAngle;
+    const key = `${arc.inner}:${arc.outer}:${arc.halfAngle}`;
+    let geo = this.arcGeos.get(key);
+    if (!geo) {
+      geo = new THREE.RingGeometry(arc.inner, arc.outer, 32, 2, start, length);
+      this.arcGeos.set(key, geo);
+    }
     const mat = new THREE.ShaderMaterial({
       uniforms: {
-        uColor: { value: new THREE.Color(0xffa83a) },
+        uColor: { value: new THREE.Color(color) },
         uOpacity: { value: 1 },
-        uInner: { value: ARC_INNER },
-        uOuter: { value: ARC_OUTER },
-        uStart: { value: ARC_START },
-        uLength: { value: ARC_LENGTH },
+        uInner: { value: arc.inner },
+        uOuter: { value: arc.outer },
+        uStart: { value: start },
+        uLength: { value: length },
         uSide: { value: 1 },
       },
       vertexShader: ARC_VERT,
@@ -106,7 +123,7 @@ export class Effects {
     const group = new THREE.Group();
     group.position.set(x, y, z);
     group.rotation.y = yaw;
-    const mesh = new THREE.Mesh(this.arcGeo, mat);
+    const mesh = new THREE.Mesh(geo, mat);
     mesh.rotation.x = -Math.PI / 2;
     mesh.scale.x = side;
     group.add(mesh);
@@ -150,22 +167,29 @@ export class Effects {
     });
   }
 
-  /** Ground warning for an incoming area attack: a fixed outline and a disc that fills as the wind-up ends. */
+  /**
+   * Ground warning for an incoming area attack: a fixed outline and a disc that fills as the wind-up
+   * ends. Normal-blended and drawn last, so hero glows (which are additive) cannot wash it out.
+   */
   telegraph(x: number, z: number, radius: number, duration: number, color: THREE.ColorRepresentation = 0xff4fd8): void {
     const group = new THREE.Group();
     group.position.set(x, 0.07, z);
-    const ringMat = additive(color, 1.6);
+    const warn = (opacity: number) =>
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false, side: THREE.DoubleSide });
+    const ringMat = warn(0.9);
     const ring = new THREE.Mesh(this.ringGeo, ringMat);
     ring.rotation.x = -Math.PI / 2;
     ring.scale.setScalar(radius);
-    const discMat = additive(color, 0.5);
+    ring.renderOrder = TELEGRAPH_ORDER + 1;
+    const discMat = warn(0.3);
     const disc = new THREE.Mesh(this.discGeo, discMat);
     disc.rotation.x = -Math.PI / 2;
+    disc.renderOrder = TELEGRAPH_ORDER;
     group.add(ring, disc);
     this.add(group, duration, [ringMat, discMat], (p) => {
       disc.scale.setScalar(Math.max(0.01, p * radius));
-      discMat.opacity = 0.25 + 0.35 * p;
-      ringMat.opacity = 0.55 + 0.45 * Math.abs(Math.sin(p * Math.PI * 6));
+      discMat.opacity = 0.22 + 0.3 * p;
+      ringMat.opacity = 0.6 + 0.4 * Math.abs(Math.sin(p * Math.PI * 6));
     });
   }
 

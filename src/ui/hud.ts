@@ -1,4 +1,8 @@
 import type { Ability } from '../combat/attacks';
+import { FAMILY_COLOR, FAMILY_LABEL, GRAFTS, SLOTS, SLOT_LABEL, type Family, type Loadout } from '../game/grafts';
+import type { Offer } from '../game/runFlow';
+import { RUNES, type RuneId } from '../game/runes';
+import { golemSvg, hex, loadoutFills, offerCard } from './graftCard';
 
 export interface EnemyBar {
   id: number;
@@ -10,22 +14,25 @@ export interface EnemyBar {
   elite: boolean;
 }
 
-export interface UpgradeOption {
-  name: string;
-  text: string;
-  level: number;
-  max: number;
-}
-
 export interface RunSummary {
+  seed: number;
   wave: number;
+  waves: number;
   kills: number;
   score: number;
   best: number;
   newBest: boolean;
+  time: number;
+  cause?: string;
+  loadout: Loadout;
+  runes: readonly RuneId[];
 }
 
-export type DamageKind = 'normal' | 'heavy' | 'player' | 'heal';
+export interface OfferHandlers {
+  pick(index: number): void;
+  reroll(): void;
+  skip(): void;
+}
 
 const byId = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
@@ -35,15 +42,39 @@ const byId = <T extends HTMLElement>(id: string): T => {
 
 const fmt = new Intl.NumberFormat('en-US');
 
-/** DOM HUD: hero health, wave and score, ability cooldowns, boss bar, menus, per-enemy bars and damage numbers. */
+export const formatTime = (seconds: number): string => {
+  const s = Math.max(0, Math.round(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+};
+
+const familyChip = (family: Family): string =>
+  `<span class="family-chip" style="--family:${hex(FAMILY_COLOR[family])}">Elite ${FAMILY_LABEL[family]}</span>`;
+
+const buildList = (loadout: Loadout, runes: readonly RuneId[]): string[] => [
+  ...SLOTS.flatMap((slot) => {
+    const id = loadout[slot];
+    return id ? [`${SLOT_LABEL[slot]}: ${GRAFTS[id].name}`] : [];
+  }),
+  ...runes.map((r) => RUNES[r].name),
+];
+
+/** DOM HUD: health, wave and score, preview of the next wave's elites, grafts, cooldowns, boss bar, menus. */
 export class Hud {
+  /** Off in headless runs: nothing touches the DOM. */
+  enabled = true;
   readonly abilityButtons: Map<Ability, HTMLButtonElement>;
   readonly mute = byId<HTMLButtonElement>('mute');
   readonly stats = byId<HTMLButtonElement>('stats');
   readonly pause = byId<HTMLButtonElement>('pause');
   readonly resume = byId<HTMLButtonElement>('resume');
   readonly pauseRestart = byId<HTMLButtonElement>('pause-restart');
-  readonly restart = byId<HTMLButtonElement>('restart');
+  readonly pauseExport = byId<HTMLButtonElement>('pause-export');
+  readonly retry = byId<HTMLButtonElement>('retry');
+  readonly newRun = byId<HTMLButtonElement>('new-run');
+  readonly gameOverExport = byId<HTMLButtonElement>('gameover-export');
+  readonly victoryNew = byId<HTMLButtonElement>('victory-new');
+  readonly victoryRetry = byId<HTMLButtonElement>('victory-retry');
+  readonly victoryExport = byId<HTMLButtonElement>('victory-export');
 
   private readonly hpFill = byId('hp-fill');
   private readonly hpTrail = byId('hp-trail');
@@ -51,6 +82,10 @@ export class Hud {
   private readonly wave = byId('wave');
   private readonly remaining = byId('remaining');
   private readonly score = byId('score');
+  private readonly preview = byId('preview');
+  private readonly previewLabel = byId('preview-label');
+  private readonly previewElites = byId('preview-elites');
+  private readonly loadout = byId('loadout');
   private readonly boss = byId('boss');
   private readonly bossFill = byId('boss-fill');
   private readonly bossTrail = byId('boss-trail');
@@ -63,25 +98,38 @@ export class Hud {
   private readonly bannerSub = byId('banner-sub');
   private readonly hurtEl = byId('hurt');
   private readonly overlay = byId('overlay');
-  private readonly upgrade = byId('upgrade');
-  private readonly upgradeTitle = byId('upgrade-title');
-  private readonly upgradeOptions = byId('upgrade-options');
+  private readonly offer = byId('offer');
+  private readonly offerTitle = byId('offer-title');
+  private readonly offerSub = byId('offer-sub');
+  private readonly offerOptions = byId('offer-options');
+  private readonly offerReroll = byId<HTMLButtonElement>('offer-reroll');
+  private readonly offerRerolls = byId('offer-rerolls');
+  private readonly offerSkip = byId<HTMLButtonElement>('offer-skip');
   private readonly paused = byId('paused');
+  private readonly pausedSeed = byId('paused-seed');
   private readonly gameOverEl = byId('gameover');
+  private readonly gameOverCause = byId('gameover-cause');
   private readonly gameOverStats = byId('gameover-stats');
   private readonly gameOverBest = byId('gameover-best');
+  private readonly victoryEl = byId('victory');
+  private readonly victoryStats = byId('victory-stats');
+  private readonly victoryBuild = byId('victory-build');
+  private readonly victoryBest = byId('victory-best');
   private readonly bars = new Map<number, { el: HTMLElement; fill: HTMLElement; trail: HTMLElement }>();
   private readonly cache = new Map<string, string>();
   private bannerTimer = 0;
+  private handlers: OfferHandlers | null = null;
 
   constructor() {
     this.abilityButtons = new Map(
       [...document.querySelectorAll<HTMLButtonElement>('.ability')].map((b) => [b.dataset.ability as Ability, b]),
     );
+    this.offerReroll.addEventListener('click', () => this.handlers?.reroll());
+    this.offerSkip.addEventListener('click', () => this.handlers?.skip());
   }
 
   setHealth(hp: number, max: number): void {
-    if (!this.changed('hp', `${hp.toFixed(1)}/${max}`)) return;
+    if (!this.enabled || !this.changed('hp', `${hp.toFixed(1)}/${max}`)) return;
     const pct = `${Math.max(0, (hp / max) * 100).toFixed(1)}%`;
     this.hpFill.style.width = pct;
     this.hpTrail.style.width = pct;
@@ -89,16 +137,41 @@ export class Hud {
     this.hpFill.parentElement?.classList.toggle('is-low', hp / max < 0.3);
   }
 
-  setWave(wave: number): void {
-    this.wave.textContent = wave > 0 ? `WAVE ${wave}` : 'GET READY';
+  setWave(wave: number, total: number): void {
+    if (!this.enabled) return;
+    this.wave.textContent = wave > 0 ? `WAVE ${wave} / ${total}` : 'GET READY';
   }
 
   setStatus(remaining: number, score: number): void {
+    if (!this.enabled) return;
     if (this.changed('remaining', String(remaining))) this.remaining.textContent = String(remaining);
     if (this.changed('score', String(score))) this.score.textContent = fmt.format(score);
   }
 
+  /** What the next (or current) wave brings: its elites and the graft families they drop. */
+  setPreview(p: { label: string; boss: boolean; elites: readonly Family[] } | null): void {
+    if (!this.enabled) return;
+    const key = p ? `${p.label}|${p.boss}|${p.elites.join(',')}` : '';
+    if (!this.changed('preview', key)) return;
+    this.preview.hidden = !p;
+    if (!p) return;
+    this.previewLabel.textContent = p.label;
+    this.previewElites.innerHTML = p.boss
+      ? '<span class="family-chip is-boss">Gloom Matriarch</span>'
+      : p.elites.map((f) => `${familyChip(f)}`).join('') + '<span class="preview-note">drops a graft</span>';
+  }
+
+  setLoadout(loadout: Loadout, runes: readonly RuneId[]): void {
+    if (!this.enabled) return;
+    const key = `${JSON.stringify(loadout)}|${runes.join(',')}`;
+    if (!this.changed('loadout', key)) return;
+    const runeChips = runes.map((r) => `<span class="rune-chip" title="${RUNES[r].name}">◆ ${RUNES[r].changes}</span>`).join('');
+    this.loadout.innerHTML = `<span class="loadout-golem">${golemSvg(loadoutFills(loadout))}</span>${runeChips}`;
+    this.loadout.title = buildList(loadout, runes).join(' · ') || 'No grafts yet';
+  }
+
   setCombo(combo: number, multiplier: number, fraction: number): void {
+    if (!this.enabled) return;
     const visible = combo >= 3;
     this.combo.classList.toggle('is-visible', visible);
     if (!visible) return;
@@ -110,6 +183,7 @@ export class Hud {
   }
 
   setBoss(hp: number, trail: number, max: number): void {
+    if (!this.enabled) return;
     const visible = max > 0;
     if (this.boss.hidden === visible) this.boss.hidden = !visible;
     if (!visible) return;
@@ -119,7 +193,7 @@ export class Hud {
 
   setCooldown(ability: Ability, fraction: number, active: boolean): void {
     const btn = this.abilityButtons.get(ability);
-    if (!btn) return;
+    if (!btn || !this.enabled) return;
     const key = `cd-${ability}`;
     const prev = this.cache.get(key) ?? '0.000';
     const value = fraction.toFixed(3);
@@ -135,6 +209,7 @@ export class Hud {
   }
 
   showBanner(title: string, sub: string, ms = 2200, boss = false): void {
+    if (!this.enabled) return;
     this.bannerTitle.textContent = title;
     this.bannerSub.textContent = sub;
     this.banner.classList.toggle('is-boss', boss);
@@ -144,6 +219,7 @@ export class Hud {
   }
 
   hurt(strength: number): void {
+    if (!this.enabled) return;
     const el = this.hurtEl;
     el.style.transition = 'none';
     el.style.opacity = String(Math.min(1, 0.35 + strength * 0.65));
@@ -152,46 +228,90 @@ export class Hud {
     el.style.opacity = '0';
   }
 
-  showUpgrades(title: string, options: readonly UpgradeOption[], onPick: (index: number) => void): void {
-    this.upgradeTitle.textContent = title;
-    this.upgradeOptions.replaceChildren(
-      ...options.map((o, i) => {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'upgrade-option';
-        const pips = Array.from({ length: o.max }, (_, p) => `<i class="${p < o.level ? 'is-on' : p === o.level ? 'is-next' : ''}"></i>`).join('');
-        btn.innerHTML = `<kbd>${i + 1}</kbd><span class="upgrade-name"></span><span class="upgrade-pips">${pips}</span><span class="upgrade-text"></span>`;
-        btn.querySelector('.upgrade-name')!.textContent = o.name;
-        btn.querySelector('.upgrade-text')!.textContent = o.text;
-        btn.addEventListener('click', () => onPick(i));
-        return btn;
+  showOffer(offer: Offer, loadout: Loadout, rerolls: number, handlers: OfferHandlers): void {
+    this.handlers = handlers;
+    if (!this.enabled) return;
+    this.offerTitle.textContent = `Elite ${FAMILY_LABEL[offer.family]} relic`;
+    this.offerTitle.style.setProperty('--family', hex(FAMILY_COLOR[offer.family]));
+    this.offerSub.textContent = offer.rerolled ? 'Rerolled. Graft a part, or take a rune' : 'Graft a part, or take a rune';
+    this.offerOptions.replaceChildren(
+      ...offer.options.map((o, i) => {
+        const card = offerCard(o, i, loadout);
+        card.addEventListener('click', () => this.handlers?.pick(i));
+        return card;
       }),
     );
-    this.upgrade.hidden = false;
-    this.upgradeOptions.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true });
+    this.offerReroll.disabled = rerolls <= 0;
+    this.offerRerolls.textContent = `(${rerolls})`;
+    this.offer.hidden = false;
+    this.offerOptions.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true });
   }
 
-  hideUpgrades(): void {
-    this.upgrade.hidden = true;
+  hideOffer(): void {
+    this.handlers = null;
+    this.offer.hidden = true;
   }
 
-  showPause(visible: boolean): void {
+  showPause(visible: boolean, seed: number): void {
     this.paused.hidden = !visible;
+    this.pausedSeed.textContent = `Seed ${seed}`;
     if (visible) this.resume.focus({ preventScroll: true });
   }
 
   showGameOver(s: RunSummary): void {
-    this.gameOverStats.textContent = `Wave ${s.wave} · ${s.kills} kills · ${fmt.format(s.score)} pts`;
+    if (!this.enabled) return;
+    this.gameOverCause.textContent = s.cause ?? '';
+    this.gameOverStats.textContent = `Wave ${s.wave} / ${s.waves} · ${s.kills} kills · ${fmt.format(s.score)} pts · ${formatTime(s.time)} · seed ${s.seed}`;
     this.gameOverBest.textContent = s.newBest ? 'NEW BEST' : `Best ${fmt.format(s.best)}`;
     this.gameOverEl.hidden = false;
-    this.restart.focus({ preventScroll: true });
+    this.retry.focus({ preventScroll: true });
   }
 
-  hideGameOver(): void {
+  showVictory(s: RunSummary): void {
+    if (!this.enabled) return;
+    this.victoryStats.textContent = `${s.kills} kills · ${fmt.format(s.score)} pts · ${formatTime(s.time)} · seed ${s.seed}`;
+    const build = buildList(s.loadout, s.runes);
+    this.victoryBuild.innerHTML = `<span class="loadout-golem">${golemSvg(loadoutFills(s.loadout))}</span>`;
+    const list = document.createElement('p');
+    list.textContent = build.length > 0 ? build.join(' · ') : 'Won bare: no grafts, no runes';
+    this.victoryBuild.append(list);
+    this.victoryBest.textContent = s.newBest ? 'NEW BEST' : `Best ${fmt.format(s.best)}`;
+    this.victoryEl.hidden = false;
+    this.victoryNew.focus({ preventScroll: true });
+  }
+
+  hideEndScreens(): void {
     this.gameOverEl.hidden = true;
+    this.victoryEl.hidden = true;
+  }
+
+  /** The open menu, if any (gamepad and arrow-key navigation act on its buttons). */
+  openModal(): HTMLElement | null {
+    return document.querySelector<HTMLElement>('.modal:not([hidden])');
+  }
+
+  /** Moves focus to the next or previous enabled button of the open menu. */
+  moveFocus(step: 1 | -1): void {
+    const modal = this.openModal();
+    if (!modal) return;
+    const buttons = [...modal.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')];
+    if (buttons.length === 0) return;
+    const at = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    const next = at < 0 ? 0 : (at + step + buttons.length) % buttons.length;
+    buttons[next]!.focus({ preventScroll: true });
+  }
+
+  /** Clicks the focused button of the open menu. */
+  activateFocused(): boolean {
+    const modal = this.openModal();
+    const active = document.activeElement;
+    if (!modal || !(active instanceof HTMLButtonElement) || !modal.contains(active) || active.disabled) return false;
+    active.click();
+    return true;
   }
 
   updateBars(list: readonly EnemyBar[]): void {
+    if (!this.enabled) return;
     const seen = new Set<number>();
     for (const b of list) {
       seen.add(b.id);
@@ -219,20 +339,21 @@ export class Hud {
     }
   }
 
-  damageNumber(x: number, y: number, amount: number, kind: DamageKind): void {
+  /** Counter-hit damage; the only damage numbers in the game. */
+  critNumber(x: number, y: number, amount: number): void {
+    if (!this.enabled) return;
     const el = document.createElement('span');
-    el.className = `dmg is-${kind}`;
-    const n = Math.round(amount);
-    el.textContent = kind === 'player' ? `-${n}` : kind === 'heal' ? `+${n}` : String(n);
+    el.className = 'dmg is-crit';
+    el.textContent = `${Math.round(amount)}!`;
     this.overlay.append(el);
     const drift = (Math.random() - 0.5) * 30;
     const anim = el.animate(
       [
         { transform: `translate(${x}px, ${y}px) translate(-50%, -50%) scale(0.5)`, opacity: 0 },
-        { transform: `translate(${x}px, ${y - 16}px) translate(-50%, -50%) scale(1.2)`, opacity: 1, offset: 0.15 },
-        { transform: `translate(${x + drift}px, ${y - 48}px) translate(-50%, -50%) scale(1)`, opacity: 0 },
+        { transform: `translate(${x}px, ${y - 16}px) translate(-50%, -50%) scale(1.3)`, opacity: 1, offset: 0.15 },
+        { transform: `translate(${x + drift}px, ${y - 52}px) translate(-50%, -50%) scale(1)`, opacity: 0 },
       ],
-      { duration: kind === 'heavy' ? 900 : 720, easing: 'cubic-bezier(.2,.7,.3,1)' },
+      { duration: 900, easing: 'cubic-bezier(.2,.7,.3,1)' },
     );
     anim.onfinish = () => el.remove();
   }

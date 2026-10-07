@@ -1,4 +1,4 @@
-import { ABILITIES, ATTACKS, BUFFER_FROM, COMBO, COMBO_WINDOW, COOLDOWNS, type Ability, type AttackId } from './attacks';
+import { ABILITIES, ATTACKS, BUFFER_FROM, COMBO, COMBO_WINDOW, COOLDOWNS, type Ability, type AttackId, type AttackSpec } from './attacks';
 
 export interface ActiveAction {
   id: AttackId;
@@ -16,8 +16,8 @@ export interface HitEvent {
 export class HeroCombat {
   action: ActiveAction | null = null;
   readonly cooldowns: Record<Ability, number> = { attack: 0, beam: 0, spin: 0, quake: 0 };
-  /** Upgrade multipliers on each ability's cooldown. */
-  cooldownScale: Record<Ability, number> = { attack: 1, beam: 1, spin: 1, quake: 1 };
+  /** Attack specs after grafts and runes; timing (duration, hit frames) comes from here. */
+  specs: Readonly<Record<AttackId, AttackSpec>> = ATTACKS;
   onStart?: (action: ActiveAction) => void;
 
   private comboIndex = 0;
@@ -25,11 +25,11 @@ export class HeroCombat {
   private buffered: { ability: Ability; yaw: number } | null = null;
 
   get moveScale(): number {
-    return this.action ? ATTACKS[this.action.id].moveScale : 1;
+    return this.action ? this.specs[this.action.id].moveScale : 1;
   }
 
   get progress(): number {
-    return this.action ? this.action.t / ATTACKS[this.action.id].duration : 0;
+    return this.action ? this.action.t / this.specs[this.action.id].duration : 0;
   }
 
   ready(ability: Ability): boolean {
@@ -37,7 +37,7 @@ export class HeroCombat {
   }
 
   cooldownFraction(ability: Ability): number {
-    const cd = COOLDOWNS[ability] * this.cooldownScale[ability];
+    const cd = COOLDOWNS[ability];
     return cd > 0 ? Math.min(1, Math.max(0, this.cooldowns[ability] / cd)) : 0;
   }
 
@@ -55,7 +55,7 @@ export class HeroCombat {
     this.comboTimer = Math.max(0, this.comboTimer - dt);
     const a = this.action;
     if (!a) return [];
-    const spec = ATTACKS[a.id];
+    const spec = this.specs[a.id];
     const prev = a.t;
     a.t += dt;
     const events: HitEvent[] = [];
@@ -71,6 +71,14 @@ export class HeroCombat {
       if (next) this.start(next.ability, next.yaw);
     }
     return events;
+  }
+
+  /** Drops the current action and any buffered one, keeping cooldowns. */
+  cancel(): void {
+    this.action = null;
+    this.buffered = null;
+    this.comboIndex = 0;
+    this.comboTimer = 0;
   }
 
   reset(): void {
@@ -91,7 +99,7 @@ export class HeroCombat {
     } else {
       id = ability;
     }
-    this.cooldowns[ability] = COOLDOWNS[ability] * this.cooldownScale[ability];
+    this.cooldowns[ability] = COOLDOWNS[ability];
     this.comboTimer = 0;
     this.action = { id, t: 0, yaw };
     this.onStart?.(this.action);

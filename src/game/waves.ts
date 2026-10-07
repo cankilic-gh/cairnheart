@@ -1,6 +1,7 @@
 import type { Rng } from '../core/rng';
 import type { EnemyKind } from '../entities/enemies/types';
 import { GATES, type GateId } from '../world/arenaConfig';
+import type { Family } from './grafts';
 
 export interface SpawnOrder {
   at: number;
@@ -9,37 +10,45 @@ export interface SpawnOrder {
   elite: boolean;
 }
 
+/** How a wave's enemies arrive: one by one, in pairs from opposite gates, or in packs from one gate. */
+export type WavePattern = 'trickle' | 'pincer' | 'swarm' | 'boss';
+
 export interface WavePlan {
   wave: number;
   orders: SpawnOrder[];
   speedScale: number;
   boss: boolean;
-  bossLevel: number;
+  pattern: WavePattern;
+  /** Elite families this wave brings, announced before it starts; each elite drops a graft of its family. */
+  elites: Family[];
 }
 
-export const BOSS_EVERY = 5;
-export const isBossWave = (wave: number): boolean => wave > 0 && wave % BOSS_EVERY === 0;
+export const BOSS_WAVE = 8;
+export const isBossWave = (wave: number): boolean => wave === BOSS_WAVE;
 
-export interface WaveSize {
+export interface WaveTemplate {
   burster: number;
-  elite: number;
   spitter: number;
   skitter: number;
-  matriarch: number;
+  elites: number;
+  pattern: Exclude<WavePattern, 'boss'>;
 }
 
-export const waveSize = (wave: number): WaveSize =>
-  isBossWave(wave)
-    ? { burster: 2 + wave / BOSS_EVERY, elite: 0, spitter: 0, skitter: 0, matriarch: 1 }
-    : {
-        burster: 3 + wave,
-        elite: wave >= 4 ? Math.floor((wave - 1) / 3) : 0,
-        spitter: wave >= 2 ? Math.floor(wave / 2) : 0,
-        skitter: wave >= 3 ? Math.floor((wave - 1) / 2) : 0,
-        matriarch: 0,
-      };
+/**
+ * Waves 1-7. Enemy health never scales; pressure comes from new kinds, more of them at once and
+ * the arrival pattern (pincers force a turn, swarms force the quake or the spin).
+ */
+export const WAVE_TEMPLATES: readonly WaveTemplate[] = [
+  { burster: 6, spitter: 0, skitter: 0, elites: 1, pattern: 'trickle' },
+  { burster: 6, spitter: 2, skitter: 0, elites: 1, pattern: 'trickle' },
+  { burster: 5, spitter: 2, skitter: 3, elites: 1, pattern: 'trickle' },
+  { burster: 8, spitter: 2, skitter: 2, elites: 1, pattern: 'pincer' },
+  { burster: 6, spitter: 3, skitter: 4, elites: 1, pattern: 'trickle' },
+  { burster: 9, spitter: 3, skitter: 3, elites: 1, pattern: 'swarm' },
+  { burster: 10, spitter: 4, skitter: 4, elites: 2, pattern: 'pincer' },
+];
 
-const shuffle = <T>(items: T[], rng: Rng): T[] => {
+export const shuffle = <T>(items: T[], rng: Rng): T[] => {
   for (let i = items.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
     [items[i], items[j]] = [items[j]!, items[i]!];
@@ -47,50 +56,89 @@ const shuffle = <T>(items: T[], rng: Rng): T[] => {
   return items;
 };
 
-const gate = (rng: Rng): GateId => GATES[Math.floor(rng() * GATES.length) % GATES.length]!.id;
+const gateIndex = (rng: Rng): number => Math.floor(rng() * GATES.length) % GATES.length;
+const gateId = (i: number): GateId => GATES[((i % GATES.length) + GATES.length) % GATES.length]!.id;
 
-export const planWave = (wave: number, rng: Rng): WavePlan => {
-  const size = waveSize(wave);
-  const speedScale = 1 + Math.min(0.45, (wave - 1) * 0.05);
-  const bossLevel = Math.max(0, wave / BOSS_EVERY - 1);
-  if (isBossWave(wave)) {
-    const orders: SpawnOrder[] = [{ at: 1.2, gate: gate(rng), kind: 'matriarch', elite: true }];
-    for (let i = 0; i < size.burster; i++) orders.push({ at: 6 + i * 5, gate: gate(rng), kind: 'burster', elite: false });
-    return { wave, orders, speedScale, boss: true, bossLevel };
-  }
-  const kinds: Array<{ kind: EnemyKind; elite: boolean }> = [
-    ...Array.from({ length: size.burster }, () => ({ kind: 'burster' as const, elite: false })),
-    ...Array.from({ length: size.elite }, () => ({ kind: 'burster' as const, elite: true })),
-    ...Array.from({ length: size.spitter }, () => ({ kind: 'spitter' as const, elite: false })),
-    ...Array.from({ length: size.skitter }, () => ({ kind: 'skitter' as const, elite: false })),
-  ];
-  const first = kinds.shift()!;
-  const order = [first, ...shuffle(kinds, rng)];
-  const interval = Math.max(0.45, 1.5 - wave * 0.08);
-  let at = 0.6;
-  const orders = order.map(({ kind, elite }) => {
-    const o: SpawnOrder = { at, gate: gate(rng), kind, elite };
-    at += interval * (0.7 + rng() * 0.6);
-    return o;
+/** Deals elite families to waves 1-7 so every family turns up at least twice. */
+export const dealElites = (rng: Rng): Family[][] => {
+  const total = WAVE_TEMPLATES.reduce((n, t) => n + t.elites, 0);
+  const deck = shuffle<Family>(
+    Array.from({ length: Math.ceil(total / 3) * 3 }, (_, i) => (['burster', 'spitter', 'skitter'] as const)[i % 3]!),
+    rng,
+  );
+  let k = 0;
+  return WAVE_TEMPLATES.map((t) => deck.slice(k, (k += t.elites)));
+};
+
+type Slot = { kind: EnemyKind; elite: boolean };
+
+const bossPlan = (wave: number, rng: Rng, speedScale: number): WavePlan => {
+  const orders: SpawnOrder[] = [{ at: 1.2, gate: gateId(gateIndex(rng)), kind: 'matriarch', elite: true }];
+  for (let i = 0; i < 4; i++) orders.push({ at: 7 + i * 9, gate: gateId(gateIndex(rng)), kind: 'burster', elite: false });
+  for (const at of [14, 30]) orders.push({ at, gate: gateId(gateIndex(rng)), kind: 'spitter', elite: false });
+  orders.sort((a, b) => a.at - b.at);
+  return { wave, orders, speedScale, boss: true, pattern: 'boss', elites: [] };
+};
+
+export const planWave = (wave: number, rng: Rng, elites: readonly Family[] = []): WavePlan => {
+  const speedScale = 1 + (wave - 1) * 0.03;
+  if (isBossWave(wave)) return bossPlan(wave, rng, speedScale);
+  const t = WAVE_TEMPLATES[Math.min(wave, WAVE_TEMPLATES.length) - 1]!;
+  const rest: Slot[] = shuffle(
+    [
+      ...Array.from({ length: t.burster - 1 }, () => ({ kind: 'burster' as const, elite: false })),
+      ...Array.from({ length: t.spitter }, () => ({ kind: 'spitter' as const, elite: false })),
+      ...Array.from({ length: t.skitter }, () => ({ kind: 'skitter' as const, elite: false })),
+    ],
+    rng,
+  );
+  const seq: Slot[] = [{ kind: 'burster', elite: false }, ...rest];
+  // Elites arrive mid-wave with company, never first and never last.
+  elites.forEach((family, i) => {
+    const at = Math.round(seq.length * (0.4 + (0.3 * (i + 1)) / (elites.length + 1)));
+    seq.splice(at, 0, { kind: family, elite: true });
   });
-  return { wave, orders, speedScale, boss: false, bossLevel };
+
+  const interval = Math.max(0.55, 1.45 - wave * 0.09);
+  const orders: SpawnOrder[] = [];
+  let at = 0.6;
+  if (t.pattern === 'trickle') {
+    for (const s of seq) {
+      orders.push({ at, gate: gateId(gateIndex(rng)), ...s });
+      at += interval * (0.7 + rng() * 0.6);
+    }
+  } else {
+    const size = t.pattern === 'pincer' ? 2 : 3;
+    for (let i = 0; i < seq.length; i += size) {
+      const g = gateIndex(rng);
+      seq.slice(i, i + size).forEach((s, k) => {
+        const gate = t.pattern === 'pincer' ? gateId(g + k * 2) : gateId(g);
+        orders.push({ at: at + (t.pattern === 'swarm' ? k * 0.25 : 0), gate, ...s });
+      });
+      at += interval * size * (0.8 + rng() * 0.4);
+    }
+  }
+  return { wave, orders, speedScale, boss: false, pattern: t.pattern, elites: [...elites] };
 };
 
 export type WaveEvent =
-  | { kind: 'waveStart'; wave: number; total: number; boss: boolean }
-  | { kind: 'spawn'; order: SpawnOrder; speedScale: number; bossLevel: number }
-  | { kind: 'waveCleared'; wave: number };
+  | { kind: 'preview'; wave: number; boss: boolean; elites: Family[] }
+  | { kind: 'waveStart'; wave: number; total: number; boss: boolean; elites: Family[] }
+  | { kind: 'spawn'; order: SpawnOrder; speedScale: number }
+  | { kind: 'waveCleared'; wave: number; last: boolean };
 
+/** Plays a fixed list of wave plans: intermission (with a preview of what is coming), spawns, clear. */
 export class WaveDirector {
   wave = 0;
-  phase: 'idle' | 'intermission' | 'active' = 'idle';
+  phase: 'idle' | 'intermission' | 'active' | 'done' = 'idle';
   private timer = 0;
   private elapsed = 0;
   private next = 0;
+  private previewed = false;
   private plan: WavePlan | null = null;
 
   constructor(
-    private readonly rng: Rng,
+    readonly plans: readonly WavePlan[],
     private readonly intermission = 3.5,
   ) {}
 
@@ -99,37 +147,53 @@ export class WaveDirector {
     return this.plan && this.phase === 'active' ? this.plan.orders.length - this.next : 0;
   }
 
+  get upcoming(): WavePlan | null {
+    return this.plans[this.wave] ?? null;
+  }
+
   start(delay = 1): void {
     this.wave = 0;
     this.plan = null;
     this.phase = 'intermission';
+    this.previewed = false;
     this.timer = delay;
   }
 
   update(dt: number, alive: number): WaveEvent[] {
     const events: WaveEvent[] = [];
     if (this.phase === 'intermission') {
+      const up = this.upcoming;
+      if (!up) {
+        this.phase = 'done';
+        return events;
+      }
+      if (!this.previewed) {
+        this.previewed = true;
+        events.push({ kind: 'preview', wave: up.wave, boss: up.boss, elites: [...up.elites] });
+      }
       this.timer -= dt;
       if (this.timer <= 0) {
         this.wave += 1;
-        this.plan = planWave(this.wave, this.rng);
+        this.plan = up;
         this.next = 0;
         this.elapsed = 0;
         this.phase = 'active';
-        events.push({ kind: 'waveStart', wave: this.wave, total: this.plan.orders.length, boss: this.plan.boss });
+        events.push({ kind: 'waveStart', wave: this.wave, total: up.orders.length, boss: up.boss, elites: [...up.elites] });
       }
       return events;
     }
     if (this.phase !== 'active' || !this.plan) return events;
     if (this.next >= this.plan.orders.length && alive === 0) {
-      events.push({ kind: 'waveCleared', wave: this.wave });
-      this.phase = 'intermission';
+      const last = this.wave >= this.plans.length;
+      events.push({ kind: 'waveCleared', wave: this.wave, last });
+      this.phase = last ? 'done' : 'intermission';
+      this.previewed = false;
       this.timer = this.intermission;
       return events;
     }
     this.elapsed += dt;
     while (this.next < this.plan.orders.length && this.plan.orders[this.next]!.at <= this.elapsed) {
-      events.push({ kind: 'spawn', order: this.plan.orders[this.next]!, speedScale: this.plan.speedScale, bossLevel: this.plan.bossLevel });
+      events.push({ kind: 'spawn', order: this.plan.orders[this.next]!, speedScale: this.plan.speedScale });
       this.next += 1;
     }
     return events;
