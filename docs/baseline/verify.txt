@@ -1,0 +1,39 @@
+
+> cairnheart@1.0.0 verify
+> npm run lint && npm run typecheck && npm run test && npm run build
+
+
+> cairnheart@1.0.0 lint
+> eslint .
+
+
+> cairnheart@1.0.0 typecheck
+> tsc --noEmit
+
+
+> cairnheart@1.0.0 test
+> vitest run
+
+
+ RUN  v5.0.3 /Users/cankilic/Documents/GitHub/cairnheart
+
+
+ Test Files  5 passed (5)
+      Tests  65 passed (65)
+   Start at  11:02:36
+   Duration  140ms (transform 68%, import 22%, tests 7%, worker 3%)
+
+
+> cairnheart@1.0.0 build
+> tsc --noEmit && vite build
+
+vite v8.3.2 building client environment for production...
+transforming...
+✓ 55 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   7.60 kB │ gzip:   2.31 kB
+dist/assets/index-BcwFalTb.css   12.57 kB │ gzip:   3.55 kB
+dist/assets/index-C5pWRw_K.js   675.64 kB │ gzip: 179.52 kB
+
+✓ built in 119ms

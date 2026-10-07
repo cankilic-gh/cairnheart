@@ -1,0 +1,65 @@
+ ✓ tests/unit/input.test.ts > keysToVector > returns zero with no keys 1ms
+ ✓ tests/unit/input.test.ts > keysToVector > normalises diagonals 0ms
+ ✓ tests/unit/input.test.ts > keysToVector > cancels opposing keys and accepts arrows 0ms
+ ✓ tests/unit/input.test.ts > joystickToIntent > ignores the dead zone 0ms
+ ✓ tests/unit/input.test.ts > joystickToIntent > flips screen y so dragging up moves away from the camera 0ms
+ ✓ tests/unit/input.test.ts > joystickToIntent > runs at the rim 0ms
+ ✓ tests/unit/combat.test.ts > hit geometry > arc hits in front and misses behind 1ms
+ ✓ tests/unit/combat.test.ts > hit geometry > arc always hits something hugging the attacker 0ms
+ ✓ tests/unit/combat.test.ts > hit geometry > beam hits along its length only 0ms
+ ✓ tests/unit/combat.test.ts > hit geometry > circle includes target radius 0ms
+ ✓ tests/unit/combat.test.ts > hit geometry > direction falls back to yaw when positions coincide 0ms
+ ✓ tests/unit/combat.test.ts > HeroCombat > fires each hit exactly once 0ms
+ ✓ tests/unit/combat.test.ts > HeroCombat > chains swipeR, swipeL, slam within the combo window then resets 0ms
+ ✓ tests/unit/combat.test.ts > HeroCombat > restarts the combo after the window lapses 0ms
+ ✓ tests/unit/combat.test.ts > HeroCombat > buffers a late request and starts it when the current action ends 0ms
+ ✓ tests/unit/combat.test.ts > HeroCombat > drops early requests and respects cooldowns 0ms
+ ✓ tests/unit/combat.test.ts > HeroCombat > emits one event per spin tick 0ms
+ ✓ tests/unit/enemies.test.ts > burster > walks in from the gate, then chases 1ms
+ ✓ tests/unit/enemies.test.ts > burster > lights its fuse in range and explodes 0ms
+ ✓ tests/unit/enemies.test.ts > burster > lets the fuse fizzle when the target escapes 0ms
+ ✓ tests/unit/enemies.test.ts > burster > quake interrupt snuffs a lit fuse 0ms
+ ✓ tests/unit/enemies.test.ts > spitter > closes distance when far and backs off when crowded 0ms
+ ✓ tests/unit/enemies.test.ts > spitter > winds up then fires one shot at the target 1ms
+ ✓ tests/unit/enemies.test.ts > spitter > a stun cancels the wind-up 0ms
+ ✓ tests/unit/enemies.test.ts > skitter > crouches, lunges and bites once 0ms
+ ✓ tests/unit/enemies.test.ts > skitter > misses when the target sidesteps during the crouch 0ms
+ ✓ tests/unit/enemies.test.ts > matriarch > telegraphs a slam before it lands 0ms
+ ✓ tests/unit/enemies.test.ts > matriarch > fires two rings of shards in a nova 0ms
+ ✓ tests/unit/enemies.test.ts > matriarch > summons bursters 0ms
+ ✓ tests/unit/enemies.test.ts > matriarch > shrugs off knockback and most of a stun 0ms
+ ✓ tests/unit/enemies.test.ts > shared rules > dies at zero hp and stops acting 0ms
+ ✓ tests/unit/enemies.test.ts > shared rules > drains the trailing health bar toward real health 0ms
+ ✓ tests/unit/enemies.test.ts > shared rules > separates overlaps and keeps enemies out of the hero 0ms
+ ✓ tests/unit/enemies.test.ts > waves > adds spitters from wave 2, skitters from 3, elites from 4 0ms
+ ✓ tests/unit/enemies.test.ts > waves > puts the matriarch in every fifth wave 0ms
+ ✓ tests/unit/enemies.test.ts > waves > plans ordered spawns matching the wave size 0ms
+ ✓ tests/unit/enemies.test.ts > waves > clears only once everything has spawned and died 0ms
+ ✓ tests/unit/progression.test.ts > upgrades > base stats change nothing 1ms
+ ✓ tests/unit/progression.test.ts > upgrades > stacks effects per level 0ms
+ ✓ tests/unit/progression.test.ts > upgrades > offers three distinct, unmaxed upgrades 0ms
+ ✓ tests/unit/progression.test.ts > upgrades > offers nothing once everything is maxed 0ms
+ ✓ tests/unit/progression.test.ts > score > ramps the multiplier every five chained kills, capped at 3x 0ms
+ ✓ tests/unit/progression.test.ts > score > breaks the chain after the combo window 0ms
+ ✓ tests/unit/progression.test.ts > score > adds wave bonuses 0ms
+ ✓ tests/unit/progression.test.ts > projectiles > hit when overlapping the hero 0ms
+ ✓ tests/unit/progression.test.ts > perf helpers > keeps a rolling window 0ms
+ ✓ tests/unit/progression.test.ts > perf helpers > drops the render scale under sustained load and restores it with headroom 0ms
+ ✓ tests/unit/progression.test.ts > audio mix > pans by the screen axis and fades with distance 0ms
+ ✓ tests/unit/progression.test.ts > audio mix > cuts the oldest voice when a sound is over its limit 0ms
+ ✓ tests/unit/progression.test.ts > game audio mode > silences gameplay audio behind the pause menu and the game-over card 0ms
+ ✓ tests/unit/progression.test.ts > game audio mode > muffles under the upgrade picker and is live otherwise 0ms
+ ✓ tests/unit/motion.test.ts > camera-relative movement > maps screen up to away-from-camera on the ground 1ms
+ ✓ tests/unit/motion.test.ts > camera-relative movement > keeps the basis orthonormal for the diagonal camera 0ms
+ ✓ tests/unit/motion.test.ts > camera-relative movement > never exceeds unit length for combined intents 0ms
+ ✓ tests/unit/motion.test.ts > stepMotion > accelerates to walk speed and faces the travel direction 0ms
+ ✓ tests/unit/motion.test.ts > stepMotion > runs faster with the run modifier 0ms
+ ✓ tests/unit/motion.test.ts > stepMotion > decelerates to rest without input 0ms
+ ✓ tests/unit/motion.test.ts > stepMotion > turns at a bounded rate 0ms
+ ✓ tests/unit/motion.test.ts > stepMotion > ignores zero or negative dt 0ms
+ ✓ tests/unit/motion.test.ts > arena bounds > projects an escaping position back onto the boundary and keeps tangential speed 0ms
+ ✓ tests/unit/motion.test.ts > arena bounds > never lets a long sprint leave the play radius 1ms
+ ✓ tests/unit/motion.test.ts > arena bounds > keeps the play radius clear of the wall ring 0ms
+ ✓ tests/unit/motion.test.ts > arena bounds > opens gates only on the four axes 0ms
+ ✓ tests/unit/motion.test.ts > gait > lengthens stride when running 0ms
+ ✓ tests/unit/motion.test.ts > gait > counts one footfall per half cycle 0ms
