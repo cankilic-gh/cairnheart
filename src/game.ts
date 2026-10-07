@@ -32,7 +32,7 @@ import {
   type GraftId,
   type GraftSlot,
 } from './game/grafts';
-import { HERO_HP, MAX_HIT_FRACTION, RUN_WAVES, newSeed } from './game/run';
+import { HERO_HP, MAX_HIT_FRACTION, RUN_WAVES, newSeed, seedRng } from './game/run';
 import { RunFlow, type FlowEvent, type Offer } from './game/runFlow';
 import { RUNES, SPITE, type RuneId } from './game/runes';
 import { ScoreKeeper } from './game/score';
@@ -45,7 +45,7 @@ import { ARENA } from './world/arenaConfig';
 
 /** Keeps enemies off the golem's model; its hurtbox is the smaller `heroHurtRadius`. */
 const HERO_BODY_RADIUS = 1.25;
-const WAVE_HEAL = 0.3;
+const WAVE_HEAL = 0.28;
 const INVULN = 0.3;
 const INTRO_RISE = 1.6;
 const INTRO_END = 2.3;
@@ -445,6 +445,7 @@ export class Game {
     if (retry) this.log.push('retry', { seed, afterOutcome: prev?.run.outcome ?? 'none', afterWave: prev?.run.wave ?? 0 });
     this.flow = new RunFlow(seed, HERO_HP);
     this.enemies.clear();
+    this.enemies.spawnRng = seedRng(this.flow.run.seed, 'spawns');
     this.effects.clear();
     this.relics.clear();
     this.combat.reset();

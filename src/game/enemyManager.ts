@@ -3,6 +3,7 @@ import { COUNTER_MULTIPLIER, type Strike } from '../combat/attacks';
 import { directionFrom, inArc, inBeam, inCircle } from '../combat/geometry';
 import type { LoopHandle, Sfx } from '../audio/engine';
 import type { CameraRig } from '../core/cameraRig';
+import type { Rng } from '../core/rng';
 import { EMERGE_TIME, configFor, createEnemy, damageEnemy, pushEnemy, separate, slamCenter, stepEnemy, windingUp } from '../entities/enemies/brain';
 import type { EnemyEvent, EnemyKind, EnemyState } from '../entities/enemies/types';
 import { EnemyView } from '../entities/enemies/views';
@@ -82,6 +83,8 @@ export class EnemyManager {
   private time = 0;
   private heroPos: Vec2 = { x: 0, z: 0 };
   private hurtRadius = 0.95;
+  /** Where along a gate enemies step out; seeded per run so visual randomness never changes a fight. */
+  spawnRng: Rng = Math.random;
 
   constructor(private readonly ctx: EnemyContext) {
     this.projectiles = new Projectiles(ctx.scene);
@@ -93,7 +96,7 @@ export class EnemyManager {
   }
 
   spawn(kind: EnemyKind, gate: GateInfo, elite: boolean, speedScale: number): EnemyState {
-    const lateral = (Math.random() - 0.5) * 2.4;
+    const lateral = (this.spawnRng() - 0.5) * 2.4;
     const pos = {
       x: gate.position.x - gate.inward.z * lateral - gate.inward.x * 0.6,
       z: gate.position.z + gate.inward.x * lateral - gate.inward.z * 0.6,
