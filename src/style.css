@@ -1085,6 +1085,8 @@ kbd.pad {
   .hud-wave {
     top: calc(var(--top) + 84px);
     left: var(--left);
+    /* Shares its row with the health bar on the right (48vw), so it wraps instead of running under it. */
+    max-width: calc(52vw - 40px);
     transform: none;
     text-align: left;
   }
@@ -1127,15 +1129,15 @@ kbd.pad {
   .ability-beam {
     grid-area: beam;
   }
+  .ability {
+    width: 62px;
+    height: 62px;
+  }
   .ability-attack {
     grid-area: attack;
     width: 88px;
     height: 88px;
     font-size: 10px;
-  }
-  .ability {
-    width: 62px;
-    height: 62px;
   }
   .banner h2 {
     font-size: 18px;
@@ -1144,7 +1146,7 @@ kbd.pad {
     font-size: 20px;
   }
   .boss {
-    width: 46vw;
+    width: 100%;
     margin: 8px 0 0;
   }
   .combo {
@@ -1217,15 +1219,15 @@ kbd.pad {
   .ability-beam {
     grid-area: beam;
   }
+  .ability {
+    width: 58px;
+    height: 58px;
+  }
   .ability-attack {
     grid-area: attack;
     width: 80px;
     height: 80px;
     font-size: 10px;
-  }
-  .ability {
-    width: 58px;
-    height: 58px;
   }
   .banner {
     top: 30%;

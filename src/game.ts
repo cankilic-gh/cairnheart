@@ -226,9 +226,11 @@ export class Game {
     this.input.onDevice = (device) => {
       document.documentElement.dataset.input = device;
     };
-    const click = (fn: () => void) => () => {
+    const click = (fn: () => void) => (e: Event) => {
       this.sfx.unlock();
       this.sfx.play('ui');
+      // Corner buttons must not keep focus, or Space would press them again instead of swiping.
+      if (!(e.currentTarget as HTMLElement).closest('.modal')) (e.currentTarget as HTMLElement).blur();
       fn();
     };
     const exportLog = click(() => this.log.download());

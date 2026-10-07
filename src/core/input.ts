@@ -197,8 +197,9 @@ export class Input {
       if (CAPTURED.has(e.code)) e.preventDefault();
       this.keys.add(e.code);
       if (e.repeat && !REPEATING.has(e.code)) return;
-      // A focused menu button already answers Enter and Space with a native click.
-      if ((e.code === 'Enter' || e.code === 'Space') && document.activeElement instanceof HTMLButtonElement) return;
+      // A focused button in an open menu already answers Enter and Space with a native click.
+      const focused = document.activeElement;
+      if ((e.code === 'Enter' || e.code === 'Space') && focused instanceof HTMLButtonElement && focused.closest('.modal:not([hidden])')) return;
       const action = KEY_BINDINGS[e.code];
       if (action) this.onAction?.(action, { device: 'keyboard', cursor: false });
     });
