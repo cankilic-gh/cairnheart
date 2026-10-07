@@ -4,6 +4,8 @@ import type { Vec2 } from '../entities/hero/motion';
 interface RelicView {
   id: number;
   at: Vec2;
+  /** Seconds until it can be picked up, so killing an elite in melee does not snap a menu open mid-swing. */
+  arm: number;
   group: THREE.Group;
   core: THREE.Mesh;
   materials: THREE.Material[];
@@ -19,7 +21,7 @@ export class Relics {
 
   constructor(private readonly scene: THREE.Scene) {}
 
-  add(id: number, at: Vec2, color: number): void {
+  add(id: number, at: Vec2, color: number, arm = 1): void {
     const glow = new THREE.Color(color);
     const coreMat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 2.2, roughness: 0.5 });
     const beamMat = new THREE.MeshBasicMaterial({
@@ -40,7 +42,7 @@ export class Relics {
     ring.position.y = 0.05;
     group.add(core, beam, ring);
     this.scene.add(group);
-    this.list.push({ id, at: { ...at }, group, core, materials: [coreMat, beamMat, ringMat] });
+    this.list.push({ id, at: { ...at }, arm, group, core, materials: [coreMat, beamMat, ringMat] });
   }
 
   remove(id: number): void {
@@ -50,10 +52,15 @@ export class Relics {
     this.list.splice(i, 1);
   }
 
-  /** Id of a relic within `radius` of `pos`, if any. */
+  /** Id of an armed relic within `radius` of `pos`, if any. */
   touching(pos: Vec2, radius: number): number | null {
-    for (const r of this.list) if (Math.hypot(r.at.x - pos.x, r.at.z - pos.z) <= radius) return r.id;
+    for (const r of this.list) if (r.arm <= 0 && Math.hypot(r.at.x - pos.x, r.at.z - pos.z) <= radius) return r.id;
     return null;
+  }
+
+  /** Counts down arming in fight time (stops while paused or in a menu). */
+  tick(dt: number): void {
+    for (const r of this.list) r.arm = Math.max(0, r.arm - dt);
   }
 
   update(time: number): void {

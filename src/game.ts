@@ -136,6 +136,8 @@ export class Game {
   private spiteCooldown = 0;
   private endShown = false;
   private lastOfferId = 0;
+  /** Elites of the current wave still standing, for the preview chips. */
+  private waveElites: Family[] = [];
   private lastFrame = 0;
   private readonly frameStats = new RollingStats(180);
   private readonly cpuStats = new RollingStats(180);
@@ -391,7 +393,7 @@ export class Game {
       for (const ev of this.flow.update(sim, this.enemies.alive)) this.onFlow(ev);
       this.enemies.update(sim, this.motion.pos, HERO_BODY_RADIUS, heroHurtRadius(this.flow.run.loadout));
       this.score.update(sim);
-      this.collectRelics();
+      this.collectRelics(sim);
     }
     if (this.state === 'dying') this.updateDeath();
     if (this.state === 'victory') this.updateVictory();
@@ -553,6 +555,7 @@ export class Game {
         break;
       case 'waveStart': {
         this.hud.setWave(ev.wave, RUN_WAVES);
+        this.waveElites = [...ev.elites];
         this.hud.setPreview({ label: `Wave ${ev.wave}`, boss: ev.boss, elites: ev.elites });
         const elites = ev.elites.map((f) => `Elite ${FAMILY_LABEL[f]}`).join(' + ');
         if (ev.boss) this.hud.showBanner(`WAVE ${ev.wave}`, 'The Gloom Matriarch rises', 2800, true);
@@ -573,11 +576,15 @@ export class Game {
         this.hud.showBanner(`WAVE ${ev.wave} CLEARED`, `+${bonus} · the heart mends`);
         break;
       }
-      case 'relic':
+      case 'relic': {
         this.relics.add(ev.id, ev.at, FAMILY_COLOR[ev.family]);
+        const left = this.waveElites.indexOf(ev.family);
+        if (left >= 0) this.waveElites.splice(left, 1);
+        this.hud.setPreview(this.waveElites.length > 0 ? { label: `Wave ${this.flow.run.wave}`, boss: false, elites: this.waveElites } : null);
         this.sfx.play('combo', { pitch: 0.8 });
         this.hud.showBanner('GRAFT RELIC', `The elite ${FAMILY_LABEL[ev.family]} left a part behind`, 1800);
         break;
+      }
       case 'offer':
         this.showOffer(ev.offer.id);
         break;
@@ -658,7 +665,8 @@ export class Game {
     for (const ev of events) this.onFlow(ev);
   }
 
-  private collectRelics(): void {
+  private collectRelics(dt: number): void {
+    this.relics.tick(dt);
     const id = this.relics.touching(this.motion.pos, RELIC_PICKUP);
     if (id === null) return;
     for (const ev of this.flow.collectRelic(id)) this.onFlow(ev);

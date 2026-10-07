@@ -5,9 +5,9 @@
       1,
       20
     ],
-    "bossReachRate": 0.6,
-    "wins": 7,
-    "medianMinutes": 6.98,
+    "bossReachRate": 0.55,
+    "wins": 4,
+    "medianMinutes": 6.99,
     "targets": {
       "bossReachRate": [
         0.4,
@@ -25,137 +25,140 @@
     {
       "seed": 1,
       "outcome": "defeat",
-      "reachedBoss": false,
-      "bossAt": null,
-      "wave": 7,
-      "time": 385.20366666664006,
-      "kills": 139,
+      "reachedBoss": true,
+      "bossAt": 390.2513333333001,
+      "wave": 8,
+      "time": 419.79333333327,
+      "kills": 156,
       "loadout": {
+        "rightArm": "shardSling",
         "leftArm": "hookClaw",
-        "back": "quillMantle",
-        "core": "bursterHeart",
-        "rightArm": "mantisScythe"
+        "back": "quillMantle"
       },
       "runes": [
-        "spite",
-        "echo"
+        "vortex",
+        "undertow"
       ],
-      "cause": "Felled by a Spitter's shard on wave 7",
+      "cause": "Felled by the Gloom Matriarch's slam on wave 8",
       "waveAt": [
         1,
         42,
-        100,
-        155,
-        217,
-        285,
-        345
+        99,
+        154,
+        213,
+        273,
+        329,
+        390
       ],
       "taken": {
-        "spitter shot": 552,
-        "elite spitter shot": 26,
+        "spitter shot": 221,
+        "skitter bite": 42,
+        "elite matriarch shot": 112,
+        "elite matriarch slam": 143,
         "burster blast": 32
       }
     },
     {
       "seed": 2,
-      "outcome": "victory",
+      "outcome": "defeat",
       "reachedBoss": true,
-      "bossAt": 400.5886666666254,
+      "bossAt": 400.56933333329135,
       "wave": 8,
-      "time": 420.9743333332708,
+      "time": 426.78466666659784,
       "kills": 155,
       "loadout": {
+        "rightArm": "mantisScythe",
+        "leftArm": "hookClaw",
         "back": "quillMantle",
-        "rightArm": "shardSling",
-        "leftArm": "fuseKnuckle",
         "core": "bursterHeart"
       },
-      "runes": [
-        "undertow",
-        "spite"
-      ],
-      "cause": null,
+      "runes": [],
+      "cause": "Felled by the Gloom Matriarch's shard on wave 8",
       "waveAt": [
         1,
         43,
-        94,
-        154,
-        216,
+        95,
+        155,
+        218,
         275,
-        328,
+        327,
         401
       ],
       "taken": {
-        "spitter shot": 312,
+        "spitter shot": 260,
         "elite spitter shot": 26,
-        "elite skitter bite": 18,
-        "elite matriarch shot": 70,
-        "elite matriarch slam": 50,
-        "burster blast": 32
+        "skitter bite": 14,
+        "elite matriarch shot": 104,
+        "elite matriarch slam": 100,
+        "burster blast": 30
       }
     },
     {
       "seed": 3,
       "outcome": "defeat",
       "reachedBoss": true,
-      "bossAt": 403.1773333332902,
+      "bossAt": 402.060999999958,
       "wave": 8,
-      "time": 432.63433333325986,
-      "kills": 157,
+      "time": 424.6013333332684,
+      "kills": 154,
       "loadout": {
-        "leftArm": "hookClaw",
         "rightArm": "mantisScythe",
+        "back": "quillMantle",
+        "leftArm": "hookClaw",
         "core": "bursterHeart"
       },
       "runes": [
-        "undertow",
-        "echo",
-        "vortex"
+        "undertow"
       ],
       "cause": "Felled by the Gloom Matriarch's slam on wave 8",
       "waveAt": [
         1,
         41,
         90,
-        143,
-        206,
-        267,
-        337,
-        403
+        142,
+        207,
+        269,
+        328,
+        402
       ],
       "taken": {
-        "elite spitter shot": 13,
-        "spitter shot": 260,
-        "elite matriarch shot": 112,
-        "elite matriarch slam": 147
+        "spitter shot": 273,
+        "elite spitter shot": 39,
+        "elite skitter bite": 18,
+        "burster blast": 32,
+        "elite matriarch shot": 84,
+        "elite matriarch slam": 61
       }
     },
     {
       "seed": 4,
       "outcome": "victory",
       "reachedBoss": true,
-      "bossAt": 398.59366666662714,
+      "bossAt": 397.4723333332955,
       "wave": 8,
-      "time": 420.3236666666044,
-      "kills": 157,
+      "time": 417.3873333332748,
+      "kills": 156,
       "loadout": {
         "leftArm": "fuseKnuckle",
         "back": "quillMantle",
+        "core": "bursterHeart",
         "rightArm": "shardSling"
       },
       "runes": [
-        "vortex"
+        "vortex",
+        "echo",
+        "undertow"
       ],
       "cause": null,
       "waveAt": [
         1,
-        43,
+        44,
         93,
-        150,
-        212,
-        275,
-        334,
-        399
+        149,
+        211,
+        274,
+        332,
+        397
       ],
       "taken": {
         "spitter shot": 208,
@@ -168,135 +171,141 @@
       "seed": 5,
       "outcome": "defeat",
       "reachedBoss": true,
-      "bossAt": 392.11299999996635,
+      "bossAt": 414.8783333332793,
       "wave": 8,
-      "time": 428.2276666665968,
-      "kills": 159,
+      "time": 439.61166666658784,
+      "kills": 154,
       "loadout": {
         "leftArm": "hookClaw",
         "rightArm": "mantisScythe",
-        "back": "quillMantle"
+        "back": "quillMantle",
+        "core": "bursterHeart"
       },
       "runes": [
-        "undertow",
         "spite"
       ],
-      "cause": "Felled by the Gloom Matriarch's shard on wave 8",
+      "cause": "Felled by a Spitter's shard on wave 8",
       "waveAt": [
         1,
         42,
         93,
         150,
-        208,
-        268,
-        322,
-        392
+        209,
+        270,
+        336,
+        415
       ],
       "taken": {
-        "spitter shot": 221,
-        "skitter bite": 14,
-        "burster blast": 24,
-        "elite matriarch shot": 111,
-        "elite matriarch slam": 150
+        "spitter shot": 312,
+        "burster blast": 62,
+        "elite spitter shot": 13,
+        "elite matriarch shot": 84,
+        "elite matriarch slam": 100
       }
     },
     {
       "seed": 6,
       "outcome": "defeat",
       "reachedBoss": true,
-      "bossAt": 399.0006666666267,
+      "bossAt": 407.0233333332863,
       "wave": 8,
-      "time": 417.7003333332745,
-      "kills": 152,
+      "time": 419.14599999994067,
+      "kills": 150,
       "loadout": {
-        "rightArm": "shardSling",
-        "leftArm": "hookClaw",
-        "core": "bursterHeart",
-        "back": "quillMantle"
-      },
-      "runes": [],
-      "cause": "Felled by the Gloom Matriarch's shard on wave 8",
-      "waveAt": [
-        1,
-        42,
-        90,
-        141,
-        204,
-        269,
-        329,
-        399
-      ],
-      "taken": {
-        "spitter shot": 468,
-        "elite spitter shot": 52,
-        "burster blast": 32,
-        "elite matriarch shot": 59,
-        "elite matriarch slam": 50
-      }
-    },
-    {
-      "seed": 7,
-      "outcome": "victory",
-      "reachedBoss": true,
-      "bossAt": 423.6959999999371,
-      "wave": 8,
-      "time": 447.87266666657814,
-      "kills": 157,
-      "loadout": {
-        "rightArm": "shardSling",
+        "rightArm": "mantisScythe",
         "leftArm": "fuseKnuckle",
         "back": "quillMantle",
         "core": "bursterHeart"
       },
-      "runes": [],
-      "cause": null,
+      "runes": [
+        "vortex",
+        "echo"
+      ],
+      "cause": "Felled by the Gloom Matriarch's slam on wave 8",
       "waveAt": [
         1,
-        47,
-        102,
-        159,
-        226,
-        288,
-        343,
-        424
+        42,
+        91,
+        141,
+        202,
+        263,
+        338,
+        407
       ],
       "taken": {
-        "elite spitter shot": 26,
-        "spitter shot": 299,
-        "elite matriarch shot": 84,
-        "elite matriarch slam": 100
+        "spitter shot": 403,
+        "elite spitter shot": 52,
+        "burster blast": 32,
+        "elite matriarch shot": 56,
+        "elite matriarch slam": 41
+      }
+    },
+    {
+      "seed": 7,
+      "outcome": "defeat",
+      "reachedBoss": false,
+      "bossAt": null,
+      "wave": 6,
+      "time": 332.6056666666909,
+      "kills": 110,
+      "loadout": {
+        "rightArm": "shardSling",
+        "core": "bursterHeart",
+        "leftArm": "hookClaw"
+      },
+      "runes": [
+        "echo",
+        "vortex"
+      ],
+      "cause": "Felled by a Spitter's shard on wave 6",
+      "waveAt": [
+        1,
+        42,
+        94,
+        151,
+        219,
+        284
+      ],
+      "taken": {
+        "elite spitter shot": 91,
+        "spitter shot": 423,
+        "elite skitter bite": 18
       }
     },
     {
       "seed": 8,
-      "outcome": "defeat",
+      "outcome": "victory",
       "reachedBoss": true,
-      "bossAt": 418.6916666666089,
+      "bossAt": 392.0763333333001,
       "wave": 8,
-      "time": 430.8223333332631,
-      "kills": 152,
+      "time": 427.5863333332642,
+      "kills": 159,
       "loadout": {
-        "rightArm": "shardSling",
-        "leftArm": "fuseKnuckle",
-        "core": "bursterHeart"
+        "rightArm": "mantisScythe",
+        "leftArm": "hookClaw"
       },
-      "runes": [],
-      "cause": "Felled by the Gloom Matriarch's slam on wave 8",
+      "runes": [
+        "echo",
+        "undertow",
+        "vortex"
+      ],
+      "cause": null,
       "waveAt": [
         1,
         43,
-        93,
+        94,
         148,
         209,
-        271,
-        338,
-        419
+        266,
+        324,
+        392
       ],
       "taken": {
-        "spitter shot": 533,
-        "elite spitter shot": 13,
-        "elite matriarch shot": 56,
-        "elite matriarch slam": 46
+        "spitter shot": 208,
+        "elite spitter shot": 26,
+        "burster blast": 61,
+        "elite matriarch shot": 112,
+        "elite matriarch slam": 100
       }
     },
     {
@@ -305,66 +314,68 @@
       "reachedBoss": false,
       "bossAt": null,
       "wave": 7,
-      "time": 403.6273333332895,
-      "kills": 148,
+      "time": 389.39066666663655,
+      "kills": 145,
       "loadout": {
         "core": "bursterHeart",
         "rightArm": "shardSling",
-        "leftArm": "hookClaw",
-        "back": "quillMantle"
+        "back": "quillMantle",
+        "leftArm": "hookClaw"
       },
       "runes": [
-        "vortex"
+        "undertow",
+        "vortex",
+        "spite"
       ],
       "cause": "Felled by a Spitter's shard on wave 7",
       "waveAt": [
         1,
         43,
         99,
-        154,
-        218,
-        280,
-        338
+        153,
+        216,
+        276,
+        333
       ],
       "taken": {
-        "spitter shot": 595,
-        "elite spitter shot": 78,
-        "skitter bite": 14
+        "spitter shot": 587,
+        "elite spitter shot": 65,
+        "burster blast": 23
       }
     },
     {
       "seed": 10,
-      "outcome": "victory",
+      "outcome": "defeat",
       "reachedBoss": true,
-      "bossAt": 395.2309999999634,
+      "bossAt": 409.95999999994973,
       "wave": 8,
-      "time": 420.051666666604,
-      "kills": 157,
+      "time": 432.5436666665932,
+      "kills": 155,
       "loadout": {
-        "back": "quillMantle",
-        "leftArm": "fuseKnuckle",
-        "rightArm": "mantisScythe",
-        "core": "bursterHeart"
+        "leftArm": "hookClaw",
+        "core": "bursterHeart",
+        "rightArm": "mantisScythe"
       },
       "runes": [
+        "echo",
         "spite"
       ],
-      "cause": null,
+      "cause": "Felled by the Gloom Matriarch's slam on wave 8",
       "waveAt": [
         1,
         42,
-        95,
-        154,
-        217,
-        276,
-        333,
-        395
+        94,
+        153,
+        221,
+        285,
+        345,
+        410
       ],
       "taken": {
-        "spitter shot": 143,
-        "elite spitter shot": 26,
+        "spitter shot": 494,
+        "elite spitter shot": 13,
         "elite matriarch shot": 84,
-        "elite matriarch slam": 100
+        "elite matriarch slam": 71
       }
     },
     {
@@ -372,28 +383,30 @@
       "outcome": "defeat",
       "reachedBoss": false,
       "bossAt": null,
-      "wave": 5,
-      "time": 263.9200000000896,
-      "kills": 85,
+      "wave": 7,
+      "time": 381.94266666664225,
+      "kills": 140,
       "loadout": {
         "core": "bursterHeart",
+        "rightArm": "mantisScythe",
+        "back": "quillMantle",
         "leftArm": "fuseKnuckle"
       },
-      "runes": [
-        "spite"
-      ],
-      "cause": "Felled by an elite Spitter's shard on wave 5",
+      "runes": [],
+      "cause": "Felled by a Spitter's shard on wave 7",
       "waveAt": [
         1,
         42,
-        94,
+        93,
         147,
-        216
+        209,
+        275,
+        335
       ],
       "taken": {
-        "spitter shot": 468,
-        "skitter bite": 14,
-        "elite spitter shot": 50
+        "burster blast": 21,
+        "spitter shot": 649,
+        "elite spitter shot": 65
       }
     },
     {
@@ -402,131 +415,136 @@
       "reachedBoss": false,
       "bossAt": null,
       "wave": 7,
-      "time": 405.246999999954,
-      "kills": 142,
+      "time": 403.76433333329,
+      "kills": 146,
       "loadout": {
         "core": "bursterHeart",
         "leftArm": "hookClaw",
         "back": "quillMantle",
         "rightArm": "mantisScythe"
       },
-      "runes": [],
+      "runes": [
+        "vortex",
+        "spite",
+        "undertow"
+      ],
       "cause": "Felled by a Spitter's shard on wave 7",
       "waveAt": [
         1,
-        41,
-        96,
-        158,
-        222,
-        290,
-        352
+        42,
+        97,
+        153,
+        218,
+        283,
+        346
       ],
       "taken": {
-        "spitter shot": 697,
-        "skitter bite": 14,
-        "elite spitter shot": 39
+        "spitter shot": 672,
+        "skitter bite": 28,
+        "elite spitter shot": 13
       }
     },
     {
       "seed": 13,
-      "outcome": "defeat",
-      "reachedBoss": false,
-      "bossAt": null,
-      "wave": 7,
-      "time": 378.5669999999803,
-      "kills": 133,
+      "outcome": "victory",
+      "reachedBoss": true,
+      "bossAt": 410.3166666666151,
+      "wave": 8,
+      "time": 432.19399999992527,
+      "kills": 155,
       "loadout": {
         "core": "bursterHeart",
-        "rightArm": "mantisScythe",
-        "leftArm": "hookClaw"
+        "rightArm": "shardSling",
+        "leftArm": "fuseKnuckle",
+        "back": "quillMantle"
       },
       "runes": [],
-      "cause": "Felled by an elite Spitter's shard on wave 7",
+      "cause": null,
       "waveAt": [
         1,
-        38,
-        91,
-        147,
-        212,
-        276,
-        343
+        39,
+        93,
+        149,
+        213,
+        278,
+        336,
+        410
       ],
       "taken": {
-        "spitter shot": 624,
-        "elite spitter shot": 31,
-        "burster blast": 32
+        "spitter shot": 481,
+        "elite spitter shot": 130,
+        "burster blast": 32,
+        "elite matriarch shot": 70,
+        "elite matriarch slam": 50
       }
     },
     {
       "seed": 14,
-      "outcome": "victory",
-      "reachedBoss": true,
-      "bossAt": 394.8219999999637,
-      "wave": 8,
-      "time": 433.24066666659195,
-      "kills": 161,
+      "outcome": "defeat",
+      "reachedBoss": false,
+      "bossAt": null,
+      "wave": 5,
+      "time": 273.0476666667477,
+      "kills": 83,
       "loadout": {
         "back": "quillMantle",
-        "rightArm": "mantisScythe",
-        "leftArm": "hookClaw",
-        "core": "bursterHeart"
+        "core": "bursterHeart",
+        "rightArm": "mantisScythe"
       },
       "runes": [
-        "undertow",
+        "vortex",
         "echo"
       ],
-      "cause": null,
+      "cause": "Felled by a Spitter's shard on wave 5",
       "waveAt": [
         1,
         44,
-        96,
-        154,
-        220,
-        279,
-        333,
-        395
+        94,
+        153,
+        226
       ],
       "taken": {
-        "spitter shot": 247,
-        "elite matriarch shot": 140,
-        "elite matriarch slam": 100
+        "spitter shot": 425,
+        "elite spitter shot": 39,
+        "burster blast": 30
       }
     },
     {
       "seed": 15,
       "outcome": "victory",
       "reachedBoss": true,
-      "bossAt": 394.76933333329663,
+      "bossAt": 388.489666666637,
       "wave": 8,
-      "time": 415.99133333327455,
-      "kills": 154,
+      "time": 414.77766666660995,
+      "kills": 155,
       "loadout": {
         "back": "quillMantle",
-        "leftArm": "fuseKnuckle",
+        "leftArm": "hookClaw",
         "rightArm": "mantisScythe",
         "core": "bursterHeart"
       },
       "runes": [
+        "spite",
         "echo"
       ],
       "cause": null,
       "waveAt": [
         1,
-        44,
-        93,
-        151,
-        213,
-        274,
-        330,
-        395
+        41,
+        89,
+        146,
+        208,
+        268,
+        324,
+        388
       ],
       "taken": {
-        "elite spitter shot": 52,
-        "spitter shot": 364,
-        "skitter bite": 28,
-        "burster blast": 55,
-        "elite matriarch shot": 84,
-        "elite matriarch slam": 50
+        "spitter shot": 299,
+        "elite spitter shot": 13,
+        "burster blast": 53,
+        "skitter bite": 14,
+        "elite matriarch shot": 98,
+        "elite matriarch slam": 100
       }
     },
     {
@@ -535,30 +553,33 @@
       "reachedBoss": false,
       "bossAt": null,
       "wave": 7,
-      "time": 398.051666666628,
-      "kills": 145,
+      "time": 401.6406666666245,
+      "kills": 146,
       "loadout": {
         "back": "quillMantle",
-        "core": "bursterHeart",
         "leftArm": "hookClaw",
-        "rightArm": "shardSling"
+        "core": "bursterHeart",
+        "rightArm": "mantisScythe"
       },
       "runes": [
-        "vortex"
+        "vortex",
+        "undertow",
+        "spite"
       ],
       "cause": "Felled by a Spitter's shard on wave 7",
       "waveAt": [
         1,
         43,
-        100,
-        158,
-        224,
-        285,
-        339
+        94,
+        153,
+        220,
+        280,
+        341
       ],
       "taken": {
-        "spitter shot": 674,
-        "elite spitter shot": 26
+        "spitter shot": 517,
+        "elite spitter shot": 91,
+        "skitter bite": 14
       }
     },
     {
@@ -567,63 +588,64 @@
       "reachedBoss": false,
       "bossAt": null,
       "wave": 7,
-      "time": 393.19433333329795,
-      "kills": 140,
+      "time": 419.479333333274,
+      "kills": 138,
       "loadout": {
+        "leftArm": "fuseKnuckle",
         "rightArm": "shardSling",
-        "leftArm": "hookClaw",
         "core": "bursterHeart",
         "back": "quillMantle"
       },
       "runes": [],
-      "cause": "Felled by a Spitter's shard on wave 7",
+      "cause": "Felled by an elite Spitter's shard on wave 7",
       "waveAt": [
         1,
         42,
-        92,
-        149,
-        220,
-        283,
-        346
+        93,
+        154,
+        255,
+        319,
+        376
       ],
       "taken": {
-        "spitter shot": 531,
-        "elite spitter shot": 65,
-        "burster blast": 26
+        "spitter shot": 507,
+        "elite spitter shot": 108,
+        "burster blast": 20
       }
     },
     {
       "seed": 18,
       "outcome": "defeat",
       "reachedBoss": true,
-      "bossAt": 403.57733333328844,
+      "bossAt": 414.1533333332782,
       "wave": 8,
-      "time": 422.3983333332697,
-      "kills": 150,
+      "time": 432.82666666659253,
+      "kills": 155,
       "loadout": {
         "leftArm": "hookClaw",
         "core": "bursterHeart",
-        "rightArm": "shardSling",
-        "back": "quillMantle"
+        "rightArm": "shardSling"
       },
-      "runes": [],
+      "runes": [
+        "echo",
+        "vortex",
+        "spite"
+      ],
       "cause": "Felled by the Gloom Matriarch's shard on wave 8",
       "waveAt": [
         1,
         43,
-        94,
-        150,
-        211,
-        275,
-        335,
-        404
+        95,
+        156,
+        217,
+        284,
+        343,
+        414
       ],
       "taken": {
-        "spitter shot": 494,
-        "skitter bite": 28,
-        "elite spitter shot": 26,
-        "burster blast": 110,
-        "elite matriarch shot": 58,
+        "spitter shot": 598,
+        "elite spitter shot": 91,
+        "elite matriarch shot": 63,
         "elite matriarch slam": 50
       }
     },
@@ -632,63 +654,60 @@
       "outcome": "defeat",
       "reachedBoss": false,
       "bossAt": null,
-      "wave": 5,
-      "time": 294.3386666667278,
-      "kills": 89,
+      "wave": 7,
+      "time": 422.5783333332703,
+      "kills": 150,
       "loadout": {
         "core": "bursterHeart",
-        "rightArm": "mantisScythe",
+        "rightArm": "shardSling",
         "back": "quillMantle",
-        "leftArm": "hookClaw"
+        "leftArm": "fuseKnuckle"
+      },
+      "runes": [
+        "echo"
+      ],
+      "cause": "Felled by a Spitter's shard on wave 7",
+      "waveAt": [
+        1,
+        43,
+        96,
+        153,
+        219,
+        298,
+        357
+      ],
+      "taken": {
+        "spitter shot": 661,
+        "elite spitter shot": 52
+      }
+    },
+    {
+      "seed": 20,
+      "outcome": "defeat",
+      "reachedBoss": false,
+      "bossAt": null,
+      "wave": 5,
+      "time": 279.3476666667414,
+      "kills": 88,
+      "loadout": {
+        "leftArm": "hookClaw",
+        "back": "quillMantle",
+        "core": "bursterHeart",
+        "rightArm": "mantisScythe"
       },
       "runes": [],
       "cause": "Felled by a Spitter's shard on wave 5",
       "waveAt": [
         1,
-        43,
-        106,
-        163,
-        227
-      ],
-      "taken": {
-        "spitter shot": 544,
-        "elite spitter shot": 26
-      }
-    },
-    {
-      "seed": 20,
-      "outcome": "victory",
-      "reachedBoss": true,
-      "bossAt": 392.07399999996585,
-      "wave": 8,
-      "time": 427.4836666665959,
-      "kills": 157,
-      "loadout": {
-        "leftArm": "hookClaw",
-        "rightArm": "mantisScythe",
-        "core": "bursterHeart",
-        "back": "quillMantle"
-      },
-      "runes": [
-        "undertow"
-      ],
-      "cause": null,
-      "waveAt": [
-        1,
         45,
         97,
         151,
-        215,
-        275,
-        330,
-        392
+        216
       ],
       "taken": {
-        "burster blast": 23,
-        "spitter shot": 221,
-        "elite spitter shot": 13,
-        "elite matriarch shot": 112,
-        "elite matriarch slam": 150
+        "spitter shot": 358,
+        "skitter bite": 14,
+        "burster blast": 20
       }
     }
   ]
