@@ -70,6 +70,10 @@ const EMBER_COLORS = [0xffb347, 0xffe2a0, 0xe08a2a].map((c) => new THREE.Color(c
 const ATTACK_NOUN: Record<HeroDamageSource['attack'], string> = { blast: 'blast', shot: 'shard', bite: 'bite', slam: 'slam' };
 const ENEMY_NAME: Record<HeroDamageSource['enemy'], string> = { burster: 'Burster', spitter: 'Spitter', skitter: 'Skitter', matriarch: 'Gloom Matriarch' };
 
+const DREAD_FOG = new THREE.Color(0x0c0614);
+const DREAD_HEMI = new THREE.Color(0x6a5588);
+const DREAD_MOON = new THREE.Color(0xc6b3ea);
+
 export type GameState = 'intro' | 'playing' | 'offer' | 'dying' | 'over' | 'victory';
 
 const isAbility = (a: string): a is Ability => (ABILITIES as readonly string[]).includes(a);
@@ -116,6 +120,10 @@ export class Game {
   private readonly effects: Effects;
   private readonly relics: Relics;
   private readonly moon: THREE.DirectionalLight;
+  private readonly hemi: THREE.HemisphereLight;
+  /** 0 on ordinary waves, eases to 1 while the Gloom Matriarch is up: the vault darkens, the glow swells. */
+  private dread = 0;
+  private dreadTarget = 0;
   private readonly dust = new ParticlePool(1600, THREE.NormalBlending);
   private readonly embers = new ParticlePool(1400, THREE.AdditiveBlending);
   private readonly motes = new EmberMotes(240, ARENA.radius + 1, 7);
@@ -168,7 +176,8 @@ export class Game {
     this.scene.background = bg;
     this.scene.fog = new THREE.FogExp2(bg, 0.024);
 
-    this.scene.add(new THREE.HemisphereLight(0x76809a, 0x0d0b12, 1.45));
+    this.hemi = new THREE.HemisphereLight(0x76809a, 0x0d0b12, 1.45);
+    this.scene.add(this.hemi);
     this.moon = new THREE.DirectionalLight(0xdfe6ff, 2.2);
     this.moon.castShadow = true;
     this.moon.shadow.mapSize.set(1024, 1024);
@@ -410,6 +419,12 @@ export class Game {
     this.sfx.setListener(this.motion.pos, cameraBasis(this.cameraRig.azimuth).right);
     this.syncAudio();
     this.sfx.update(dt);
+    if (Math.abs(this.dread - this.dreadTarget) > 0.001) {
+      // Ease over a few seconds either way: the vault darkens as she rises and lifts again when she falls.
+      this.dread += (this.dreadTarget - this.dread) * (1 - Math.exp(-dt / 2.2));
+      if (Math.abs(this.dread - this.dreadTarget) <= 0.001) this.dread = this.dreadTarget;
+      this.applyDread();
+    }
     this.moon.position.set(root.position.x + 8, 16, root.position.z + 3);
     this.moon.target.position.set(root.position.x, 0, root.position.z);
     this.tmp.set(root.position.x, 0, root.position.z);
@@ -425,6 +440,22 @@ export class Game {
   }
 
   /** Lowers the render scale while frames run over budget, raises it again with headroom. */
+  /** Boss-wave look: denser violet fog, a dimmer and cooler moon, less fill, a lower bloom threshold and more glow. */
+  private applyDread(): void {
+    const d = this.dread;
+    const fog = this.scene.fog as THREE.FogExp2;
+    fog.color.setHex(0x07060c).lerp(DREAD_FOG, d);
+    (this.scene.background as THREE.Color).copy(fog.color);
+    fog.density = 0.024 + 0.03 * d;
+    this.hemi.color.setHex(0x76809a).lerp(DREAD_HEMI, d);
+    this.hemi.intensity = 1.45 - 0.7 * d;
+    this.moon.color.setHex(0xdfe6ff).lerp(DREAD_MOON, d);
+    this.moon.intensity = 2.2 - 0.8 * d;
+    this.post.bloom.strength = 0.55 + 0.45 * d;
+    this.post.bloom.threshold = 0.9 - 0.18 * d;
+    this.renderer.toneMappingExposure = 1.3 - 0.24 * d;
+  }
+
   private adaptResolution(dt: number, halted: boolean): void {
     if (halted || this.headless) return;
     const gpu = this.gpuTimer.lastMs;
@@ -444,6 +475,9 @@ export class Game {
     if (prev && prev.run.outcome === 'running' && prev.phase !== 'intro') this.logRunEnd('abandoned');
     if (retry) this.log.push('retry', { seed, afterOutcome: prev?.run.outcome ?? 'none', afterWave: prev?.run.wave ?? 0 });
     this.flow = new RunFlow(seed, HERO_HP);
+    this.dreadTarget = 0;
+    this.dread = 0;
+    this.applyDread();
     this.enemies.clear();
     this.enemies.spawnRng = seedRng(this.flow.run.seed, 'spawns');
     this.effects.clear();
@@ -560,6 +594,7 @@ export class Game {
         this.waveElites = [...ev.elites];
         this.hud.setPreview({ label: `Wave ${ev.wave}`, boss: ev.boss, elites: ev.elites });
         const elites = ev.elites.map((f) => `Elite ${FAMILY_LABEL[f]}`).join(' + ');
+        this.dreadTarget = ev.boss ? 1 : 0;
         if (ev.boss) this.hud.showBanner(`WAVE ${ev.wave}`, 'The Gloom Matriarch rises', 2800, true);
         else this.hud.showBanner(`WAVE ${ev.wave}`, `${ev.total} gloomlings · ${elites}`);
         this.sfx.play('waveStart');
@@ -571,6 +606,7 @@ export class Game {
         break;
       }
       case 'waveCleared': {
+        this.dreadTarget = 0;
         const bonus = this.score.waveBonus(ev.wave);
         this.sfx.play('waveClear');
         this.hp = Math.min(HERO_HP, this.hp + Math.round(HERO_HP * WAVE_HEAL));
@@ -610,9 +646,11 @@ export class Game {
         this.log.push('graftReject', { offer: ev.offer, grafts: ev.grafts, reason: ev.reason });
         break;
       case 'victory':
+        this.dreadTarget = 0;
         this.onVictory();
         break;
       case 'defeat': {
+        this.dreadTarget = 0;
         this.logRunEnd('defeat');
         this.hud.showGameOver(this.summary());
         break;
